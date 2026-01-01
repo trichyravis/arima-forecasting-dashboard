@@ -1,6 +1,6 @@
 
 import streamlit as st
-import pandas as pd
+import pd
 import numpy as np
 from datetime import datetime, timedelta
 import yfinance as yf
@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import pmdarima as pm
 from io import BytesIO
 
-# Suppress warnings for cleaner UI
+# Suppress warnings
 warnings.filterwarnings("ignore")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -39,7 +39,7 @@ ALL_TICKERS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIG & CUSTOM CSS
+# PAGE CONFIG & FINAL CSS FIX
 # ═══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="🏔️", layout="wide")
 
@@ -58,18 +58,35 @@ st.markdown(f"""
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important; 
     }}
     
-    /* Keep Sidebar Headers and Labels White */
+    /* UNIVERSAL WHITE TEXT: Headers, Labels, and Radio Button Options */
     [data-testid="stSidebar"] h3, 
     [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] .stMarkdown p {{ 
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] div[role="radiogroup"] {{ 
         color: white !important; 
         font-weight: 600 !important;
     }}
+
+    /* Target specific radio button text labels */
+    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p,
+    [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {{
+        color: white !important;
+    }}
     
-    /* FIX: Make text INSIDE selectboxes and inputs Dark Blue for readability */
+    /* Target radio button item text specifically */
+    [data-testid="stSidebar"] .st-ae div {{
+        color: white !important;
+    }}
+
+    /* INPUT VISIBILITY: Keep text INSIDE dropdowns/inputs Dark for readability */
     div[data-baseweb="select"] > div,
     input {{ 
         color: {DARK_BLUE} !important; 
+    }}
+
+    /* Slider numbers fix */
+    [data-testid="stSidebar"] .st-at {{
+        color: white !important;
     }}
 
     /* Refresh Button Styling */
@@ -94,12 +111,11 @@ def fetch_stock_data(ticker, years):
     try:
         data = yf.download(ticker, start=start_date, end=end_date)
         if data.empty: return None
-        # Handle yfinance MultiIndex
         return data['Close'][ticker].dropna() if isinstance(data.columns, pd.MultiIndex) else data['Close'].dropna()
     except: return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT - HERO & SIDEBAR
+# UI LAYOUT
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <div class="hero-title">
@@ -116,7 +132,7 @@ with st.sidebar:
     freq = st.radio("Data Frequency", ["Daily", "Weekly", "Monthly"])
     
     st.markdown("### ⚙️ Model Configuration")
-    transformation = st.radio("Price Transformation", ["Price Level", "Log Returns"], index=1)
+    transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
     
     st.markdown("### 🔮 Forecast Settings")
@@ -124,7 +140,7 @@ with st.sidebar:
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN CONTENT
+# MAIN LOGIC & OUTPUT
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3 = st.tabs(["📈 Forecast Chart", "📊 Model Metrics", "📋 Export Data"])
 results = None
@@ -134,36 +150,38 @@ if refresh_button:
         raw_prices = fetch_stock_data(ticker, lookback)
         
         if raw_prices is not None:
-            # Resampling
             if freq == "Weekly": raw_prices = raw_prices.resample('W').last()
             elif freq == "Monthly": raw_prices = raw_prices.resample('M').last()
             
-            # Transformation
-            train_series = np.log(raw_prices).diff().dropna() if transformation == "Log Returns" else raw_prices
+            # Simplified transformation for demo
+            if transformation == "Log Returns":
+                train_series = np.log(raw_prices).diff().dropna()
+            elif transformation == "Log Prices":
+                train_series = np.log(raw_prices)
+            elif transformation == "Percentage Returns":
+                train_series = raw_prices.pct_change().dropna()
+            else:
+                train_series = raw_prices
             
             try:
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False, stepwise=True)
                     fc = model.predict(n_periods=forecast_horizon)
-                    order, aic, resid = model.order, model.aic(), model.resid()
+                    order, aic = model.order, model.aic()
                 else:
                     fit = ARIMA(train_series, order=(1,1,1)).fit()
                     fc = fit.forecast(steps=forecast_horizon)
-                    order, aic, resid = (1,1,1), fit.aic, fit.resid
+                    order, aic = (1,1,1), fit.aic
 
-                # Reverting Log Returns to Price
+                # Basic inversion logic
                 if transformation == "Log Returns":
-                    last_p = raw_prices.iloc[-1]
-                    inv_fc = last_p * np.exp(np.cumsum(fc))
+                    inv_fc = raw_prices.iloc[-1] * np.exp(np.cumsum(fc))
                 else:
                     inv_fc = fc
                 
-                # Date Range for Forecast
-                freq_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
-                f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=freq_map[freq])[1:]
+                f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq='B')[1:]
                 fc_df = pd.DataFrame({"Forecasted Price": inv_fc}, index=f_dates)
-                
-                results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic, "resid": resid}
+                results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic}
             except Exception as e:
                 st.error(f"Computation Error: {e}")
 
@@ -171,32 +189,17 @@ if results:
     with tab1:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical"))
-        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
-        fig.update_layout(title=f"ARIMA{results['order']} Model for {ticker}", hovermode="x unified")
+        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
-        
     with tab2:
         st.metric("Optimal Model Order", str(results["order"]))
-        st.metric("Akaike Information Criterion (AIC)", f"{results['aic']:.2f}")
-        
+        st.metric("AIC Score", f"{results['aic']:.2f}")
     with tab3:
-        st.subheader("Forecasted Price Table")
+        st.subheader("Forecasted Results")
         st.dataframe(results["fc_df"], use_container_width=True)
-        
-        # Excel Download Logic
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             results["fc_df"].to_excel(writer, sheet_name='Forecast')
-        
-        st.download_button(
-            label="📥 Download Results (Excel)",
-            data=buffer.getvalue(),
-            file_name=f"{ticker}_Forecast.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
+        st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 else:
-    st.info("Adjust settings and click the button to generate a forecast.")
-
-st.markdown("---")
-st.markdown("### Box-Jenkins ARIMA Methodology")
+    st.info("Adjust settings and click the button to generate forecast.")
