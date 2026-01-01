@@ -21,7 +21,7 @@ try:
 except ImportError:
     HAS_SEABORN = False
 
-# Suppress warnings for cleaner UI
+# Suppress warnings
 warnings.filterwarnings("ignore")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -71,13 +71,10 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HERO SECTION
+# UI LAYOUT - HERO & SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Nifty 50 Stocks</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("### 📊 Data Selection")
     ticker = st.selectbox("Select Security", options=list(NIFTY_50_STOCKS.keys()), format_func=lambda x: f"{x} - {NIFTY_50_STOCKS[x]}")
@@ -88,7 +85,6 @@ with st.sidebar:
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
     
-    # Manual Parameters
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         col1, col2, col3 = st.columns(3)
@@ -105,7 +101,7 @@ with st.sidebar:
     st.markdown("*28+ Years Finance Experience*")
     st.markdown(f"<a href='https://www.linkedin.com/in/trichyravis' target='_blank' style='display: block; padding: 0.5rem; background: #0077b5; color: white; text-align: center; text-decoration: none; border-radius: 5px; font-weight: bold;'>🔗 LinkedIn Profile</a>", unsafe_allow_html=True)
 
-# Summary Metrics Dashboard
+# Dashboard Summary Metrics
 st.markdown("### 📊 Current Parameters")
 m_cols = st.columns(4)
 m_cols[0].metric("Security", ticker)
@@ -158,7 +154,7 @@ if refresh_button:
                 st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TABS DISPLAY
+# OUTPUT DISPLAY
 # ═══════════════════════════════════════════════════════════════════════════════
 if results:
     with tab1:
@@ -180,7 +176,6 @@ if results:
         st.subheader("📊 Comprehensive Model Metrics")
         c1, c2, c3 = st.columns(3)
         
-        # Robust metric extraction helper
         def get_stat(obj, attr, is_method=True):
             if hasattr(obj, attr):
                 val = getattr(obj, attr)
@@ -189,8 +184,6 @@ if results:
 
         llf = get_stat(results["fit_obj"], "llf", False)
         if llf is None: llf = get_stat(results["fit_obj"], "loglikelihood", True)
-        if llf is None and hasattr(results["fit_obj"], "arima_res_"): llf = results["fit_obj"].arima_res_.llf
-            
         bic = get_stat(results["fit_obj"], "bic", True)
         if bic is None: bic = get_stat(results["fit_obj"], "bic", False)
 
@@ -199,15 +192,21 @@ if results:
         c1.metric("AIC", f"{results['aic']:.2f}")
         if bic: c1.metric("BIC", f"{bic:.2f}")
 
-        # Accuracy
         fitted = results["fit_obj"].fittedvalues() if hasattr(results["fit_obj"], 'fittedvalues') and callable(results["fit_obj"].fittedvalues) else results["fit_obj"].fittedvalues
         actual = results["train_series"]
         rmse = np.sqrt(np.mean((fitted - actual)**2))
-        mape = np.mean(np.abs((actual - fitted) / actual)) * 100
+        
+        # Robust MAPE Fix to prevent inf%
+        mask = actual != 0
+        if np.any(mask):
+            mape_val = np.mean(np.abs((actual[mask] - fitted[mask]) / actual[mask])) * 100
+            mape_str = f"{mape_val:.2f}%"
+        else:
+            mape_str = "N/A"
         
         c2.markdown("#### Performance")
         c2.metric("RMSE", f"{rmse:.4f}")
-        c2.metric("MAPE", f"{mape:.2f}%")
+        c2.metric("MAPE", mape_str)
 
         c3.markdown("#### Quality")
         if llf: c3.metric("Log-Likelihood", f"{llf:.2f}")
@@ -232,13 +231,13 @@ if results:
         3. **Diagnostic Checking**: Evaluating the **Residuals**. If residuals are random "White Noise," the model is capture-ready.
         
         ### 🎯 Key Parameters
-        - **p (AR - Autoregressive):** Past price influence. High $p$ means today's price is heavily dependent on previous days.
-        - **d (I - Integrated):** The 'Trend-Killer'. Differencing removes trends to reveal the underlying statistical structure.
-        - **q (MA - Moving Average):** Past error influence. High $q$ helps the model recover from sudden market shocks.
+        - **p (AR - Autoregressive):** Past price influence. It captures how today's price is dependent on previous days.
+        - **d (I - Integrated):** The number of differencing steps required to remove trends and achieve stationarity.
+        - **q (MA - Moving Average):** Past error influence. It models the impact of sudden market shocks.
         
         ### 📊 Performance Indicators
-        - **AIC/BIC**: Information criteria. **Lower is better**. They reward models that are accurate but penalize those that are unnecessarily complex.
-        - **MAPE (Mean Absolute Percentage Error)**: A score below 5% indicates exceptional predictive power.
+        - **AIC/BIC**: These criteria reward accuracy but penalize over-complexity. **Lower is better.**
+        - **MAPE (Mean Absolute Percentage Error)**: Represents the average error as a percentage of actual values. A score below 5% is considered excellent.
         """)
 
 st.markdown("---")
