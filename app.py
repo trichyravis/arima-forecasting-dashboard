@@ -71,7 +71,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HERO & SIDEBAR (RESTORED NAME PROFILE)
+# HERO & SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
@@ -93,7 +93,6 @@ with st.sidebar:
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
     
-    # Restored Name Profile and LinkedIn
     st.markdown("---")
     st.markdown("### Prof. V. Ravichandran")
     st.markdown("*28+ Years Finance Experience*")
@@ -121,7 +120,7 @@ if model_mode == "Manual ARIMA":
 pm4.metric("Horizon", f"{forecast_horizon} periods")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROCESSING & TABS
+# PROCESSING
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Forecast", "🧪 Backtesting", "🔍 Diagnostics", "📊 Metrics", "📋 Export", "📚 Educational Hub"])
 results = None
@@ -135,7 +134,6 @@ if refresh_button:
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
             
-            # Splitting for Backtest (hindcasting)
             bt_size = min(30, len(raw_prices)//5)
             bt_train_raw, bt_actual_raw = raw_prices[:-bt_size], raw_prices[-bt_size:]
             
@@ -149,19 +147,16 @@ if refresh_button:
             bt_train_series = transform_data(bt_train_raw, transformation)
 
             try:
-                # Forecasting Model
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False)
                     fc = model.predict(n_periods=forecast_horizon)
                     order, aic, resid, fit_obj = model.order, model.aic(), model.resid(), model
-                    
                     bt_model = pm.auto_arima(bt_train_series, seasonal=False)
                     bt_fc = bt_model.predict(n_periods=bt_size)
                 else:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
                     fc = fit.forecast(steps=forecast_horizon)
                     order, aic, resid, fit_obj = (p, d, q), fit.aic, fit.resid, fit
-                    
                     bt_fit = ARIMA(bt_train_series, order=(p, d, q)).fit()
                     bt_fc = bt_fit.forecast(steps=bt_size)
 
@@ -176,21 +171,15 @@ if refresh_button:
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
                 fc_df = pd.DataFrame({"Forecasted Price": np.array(inv_fc).flatten()}, index=f_dates)
-                
-                bt_comp = pd.DataFrame({
-                    "Actual Price": bt_actual_raw.values,
-                    "Predicted Price": np.array(inv_bt).flatten()
-                }, index=bt_actual_raw.index)
+                bt_comp = pd.DataFrame({"Actual Price": bt_actual_raw.values, "Predicted Price": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
                 bt_comp["Variance (%)"] = ((bt_comp["Predicted Price"] - bt_comp["Actual Price"]) / bt_comp["Actual Price"]) * 100
                 
-                # Metrics
                 fitted = fit_obj.fittedvalues() if hasattr(fit_obj, 'fittedvalues') and callable(fit_obj.fittedvalues) else fit_obj.fittedvalues
                 rmse = np.sqrt(np.mean((fitted - train_series)**2))
                 mask = train_series != 0
                 mape = np.mean(np.abs((train_series[mask] - fitted[mask]) / train_series[mask])) * 100 if np.any(mask) else 0
 
-                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, 
-                           "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
+                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
             except Exception as e: st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -226,7 +215,6 @@ if results:
         c1.metric("AIC Score", f"{results['aic']:.2f}")
         c2.metric("RMSE", f"{results['rmse']:.4f}")
         c2.metric("MAPE (Training)", f"{results['mape']:.2f}%")
-        
         lb_p = acorr_ljungbox(results["resid"], lags=[10], return_df=True)['lb_pvalue'].values[0]
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
 
@@ -239,7 +227,8 @@ if results:
 with tab6:
     st.header("📖 ARIMA Learning Center")
     st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
-        st.markdown("""
+    
+    st.markdown("""
     ### 🏔️ Stages of the Lifecycle
     1. **Identification**: Transform the data (differencing/logs) to achieve **Stationarity**.
     2. **Estimation**: Determine the optimal **p** (AutoRegressive) and **q** (Moving Average) parameters.
