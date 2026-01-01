@@ -9,11 +9,17 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.graphics.tsaplots import plot_acf
 import matplotlib.pyplot as plt
-import seaborn as sns 
 from scipy import stats
 import plotly.graph_objects as go
 import pmdarima as pm
 from io import BytesIO
+
+# Try to import seaborn, with a fallback if it fails
+try:
+    import seaborn as sns
+    HAS_SEABORN = True
+except ImportError:
+    HAS_SEABORN = False
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -174,7 +180,14 @@ if results:
         st.subheader("🔍 Residual Diagnostics")
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes[0, 0].plot(results["resid"]); axes[0, 0].set_title("Standardized Residuals")
-        sns.histplot(results["resid"], kde=True, ax=axes[0, 1]); axes[0, 1].set_title("Residual Normality")
+        
+        # Safe plotting for histogram if seaborn is missing
+        if HAS_SEABORN:
+            sns.histplot(results["resid"], kde=True, ax=axes[0, 1])
+        else:
+            axes[0, 1].hist(results["resid"], bins=20, density=True, alpha=0.6, color='g')
+        axes[0, 1].set_title("Residual Distribution")
+        
         plot_acf(results["resid"], ax=axes[1, 0], lags=20); axes[1, 0].set_title("Residual ACF")
         stats.probplot(results["resid"], dist="norm", plot=axes[1, 1]); axes[1, 1].set_title("Normal Q-Q Plot")
         plt.tight_layout()
