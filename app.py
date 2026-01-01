@@ -283,7 +283,7 @@ with st.sidebar:
     lookback_years = st.selectbox(
         "Years of Historical Data",
         options=[1, 2, 3, 5, 7, 10],
-        index=3,
+        index=2,  # Default 3y
         help="More data = more stable model, but older patterns"
     )
     
@@ -353,7 +353,7 @@ with st.sidebar:
     st.markdown("---")
     refresh_button = st.button(
         f"🔄 FETCH DATA & RUN MODEL",
-        use_container_width=True,
+        width='stretch',
         key="refresh_button",
         help="Click to fetch data and run ARIMA model"
     )
@@ -410,83 +410,97 @@ if refresh_button:
                 train_size = int(train_pct / 100 * n)
                 train, test = transformed[:train_size], transformed[train_size:]
                 
-                try:
-                    if model_mode == "Auto ARIMA":
-                        auto_model = pm.auto_arima(
-                            train,
-                            seasonal=False,
-                            stepwise=True,
-                            suppress_warnings=True,
-                            error_action="ignore",
-                            max_p=5, max_q=5, max_d=2
-                        )
-                        fitted = auto_model.fit(train)
-                        fitted_values_series = fitted.fittedvalues()
-                        residuals_series = fitted.resid()
-                        forecast, conf_int = fitted.predict(
-                            n_periods=forecast_horizon,
-                            return_conf_int=True,
-                            alpha=1 - float(confidence_level.strip('%'))/100
-                        )
-                        aic = fitted.aic()
-                        bic = fitted.bic()
-                        order = fitted.order
-                    else:
-                        # Manual ARIMA
-                        model = ARIMA(train, order=(p, d, q))
-                        fitted = model.fit()
-                        fitted_values_series = fitted.fittedvalues
-                        residuals_series = fitted.resid
-                        forecast = fitted.forecast(steps=forecast_horizon)
-                        conf_int = fitted.get_forecast(steps=forecast_horizon).conf_int(
-                            alpha=1 - float(confidence_level.strip('%'))/100
-                        )
-                        aic = fitted.aic
-                        bic = fitted.bic
-                        order = (p, d, q)
-                    
-                    # Invert forecast (always starts from last price)
-                    last_price = price_data.iloc[-1]
-                    if transformation == "Price Level":
-                        forecast_inverted = forecast
-                        lower_ci = conf_int[:, 0]
-                        upper_ci = conf_int[:, 1]
-                    elif transformation == "Log Prices":
-                        forecast_inverted = np.exp(forecast)
-                        lower_ci = np.exp(conf_int[:, 0])
-                        upper_ci = np.exp(conf_int[:, 1])
-                    else:  # Log Returns or % Returns
-                        cumsum = np.cumsum(forecast)
-                        if transformation == "Log Returns":
-                            forecast_inverted = last_price * np.exp(cumsum)
-                            lower_cumsum = np.cumsum(conf_int[:, 0])
-                            upper_cumsum = np.cumsum(conf_int[:, 1])
-                            lower_ci = last_price * np.exp(lower_cumsum)
-                            upper_ci = last_price * np.exp(upper_cumsum)
+                # 🔥 VALIDATE TRAIN SERIES BEFORE FITTING
+                if train.isna().sum() > 0:
+                    st.error("❌ Training data contains NaNs. Try a different transformation or ticker.")
+                    results = {}
+                else:
+                    try:
+                        if model_mode == "Auto ARIMA":
+                            auto_model = pm.auto_arima(
+                                train,
+                                seasonal=False,
+                                stepwise=True,
+                                suppress_warnings=True,
+                                error_action="ignore",
+                                max_p=5, max_q=5, max_d=2
+                            )
+                            fitted = auto_model.fit(train)
+                            fitted_values_series = fitted.fittedvalues()
+                            residuals_series = fitted.resid()
+                            forecast, conf_int = fitted.predict(
+                                n_periods=forecast_horizon,
+                                return_conf_int=True,
+                                alpha=1 - float(confidence_level.strip('%'))/100
+                            )
+                            aic = fitted.aic()
+                            bic = fitted.bic()
+                            order = fitted.order
                         else:
-                            forecast_inverted = last_price * (1 + cumsum)
-                            lower_cumsum = np.cumsum(conf_int[:, 0])
-                            upper_cumsum = np.cumsum(conf_int[:, 1])
-                            lower_ci = last_price * (1 + lower_cumsum)
-                            upper_ci = last_price * (1 + upper_cumsum)
-                    
-                    results = {
-                        'price_data': price_data,
-                        'train': train,
-                        'test': test,
-                        'fitted_values': fitted_values_series,
-                        'forecast': forecast_inverted,
-                        'lower_ci': lower_ci,
-                        'upper_ci': upper_ci,
-                        'order': order,
-                        'aic': aic,
-                        'bic': bic,
-                        'residuals': residuals_series,
-                        'transformation': transformation
-                    }
-                    
-                except Exception as e:
-                    st.error(f"❌ Model fitting failed: {str(e)}")
+                            # 🛡️ MANUAL ARIMA: Validate d=0 for stationarity
+                            if d == 0:
+                                try:
+                                    adf_result = adfuller(train)
+                                    if adf_result[1] > 0.05:
+                                        st.warning("⚠️ Series may be non-stationary (d=0). Consider d=1.")
+                                except:
+                                    pass
+
+                            model = ARIMA(train, order=(p, d, q))
+                            fitted = model.fit()
+                            fitted_values_series = fitted.fittedvalues
+                            residuals_series = fitted.resid
+                            forecast = fitted.forecast(steps=forecast_horizon)
+                            conf_int = fitted.get_forecast(steps=forecast_horizon).conf_int(
+                                alpha=1 - float(confidence_level.strip('%'))/100
+                            )
+                            aic = fitted.aic
+                            bic = fitted.bic
+                            order = (p, d, q)
+                        
+                        # Invert forecast
+                        last_price = price_data.iloc[-1]
+                        if transformation == "Price Level":
+                            forecast_inverted = forecast
+                            lower_ci = conf_int[:, 0]
+                            upper_ci = conf_int[:, 1]
+                        elif transformation == "Log Prices":
+                            forecast_inverted = np.exp(forecast)
+                            lower_ci = np.exp(conf_int[:, 0])
+                            upper_ci = np.exp(conf_int[:, 1])
+                        else:  # Log Returns or % Returns
+                            cumsum = np.cumsum(forecast)
+                            if transformation == "Log Returns":
+                                forecast_inverted = last_price * np.exp(cumsum)
+                                lower_cumsum = np.cumsum(conf_int[:, 0])
+                                upper_cumsum = np.cumsum(conf_int[:, 1])
+                                lower_ci = last_price * np.exp(lower_cumsum)
+                                upper_ci = last_price * np.exp(upper_cumsum)
+                            else:
+                                forecast_inverted = last_price * (1 + cumsum)
+                                lower_cumsum = np.cumsum(conf_int[:, 0])
+                                upper_cumsum = np.cumsum(conf_int[:, 1])
+                                lower_ci = last_price * (1 + lower_cumsum)
+                                upper_ci = last_price * (1 + upper_cumsum)
+                        
+                        results = {
+                            'price_data': price_data,
+                            'train': train,
+                            'test': test,
+                            'fitted_values': fitted_values_series,
+                            'forecast': forecast_inverted,
+                            'lower_ci': lower_ci,
+                            'upper_ci': upper_ci,
+                            'order': order,
+                            'aic': aic,
+                            'bic': bic,
+                            'residuals': residuals_series,
+                            'transformation': transformation
+                        }
+                        
+                    except Exception as e:
+                        st.error(f"❌ Model fitting failed: {str(e)}")
+                        results = {}
 
 # ───────────── TAB 1: TIME SERIES CHART ─────────────
 with tab1:
