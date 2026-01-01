@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore")
 DARK_BLUE = "#003366"
 LIGHT_BLUE = "#0066CC"
 GOLD_COLOR = "#FFD700"
-BRAND_NAME = "The Mountain Path - World of Finance"  # Restored missing variable
+BRAND_NAME = "The Mountain Path - World of Finance"
 
 HERO_TITLE = "ARIMA FORECASTING DASHBOARD"
 HERO_SUBTITLE = "Real-Time Box-Jenkins Time Series Forecasting for Indian Equities"
@@ -49,7 +49,7 @@ ALL_TICKERS = {
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="🏔️", layout="wide")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS STYLING (Fixed for Visibility)
+# CSS STYLING (Fixed for Sidebar Visibility & Selection Clarity)
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <style>
@@ -62,10 +62,19 @@ st.markdown(f"""
     [data-testid="stSidebar"] {{ 
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important; 
     }}
-    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] div[role="radiogroup"] {{ 
+    /* Force Sidebar labels, headers, and radio options to White */
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] .stMarkdown p, 
+    [data-testid="stSidebar"] div[role="radiogroup"] p,
+    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {{ 
         color: white !important; font-weight: 600 !important;
     }}
+    /* Keep selectbox/input text Dark Blue for readability on white background */
     div[data-baseweb="select"] > div, input {{ color: {DARK_BLUE} !important; }}
+    /* Slider value labels */
+    [data-testid="stSidebar"] .st-at {{ color: white !important; }}
+    
     .stButton>button {{
         background-color: {GOLD_COLOR} !important;
         color: {DARK_BLUE} !important;
@@ -78,7 +87,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT
+# UI LAYOUT - HERO & SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <div class="hero-title">
@@ -98,16 +107,26 @@ with st.sidebar:
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
     
+    # RESTORED: Manual Parameter Selection Sliders
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         col1, col2, col3 = st.columns(3)
-        p = col1.slider("p", 0, 5, 1)
-        d = col2.slider("d", 0, 2, 1)
-        q = col3.slider("q", 0, 5, 1)
+        p = col1.slider("p (AR)", 0, 5, 1)
+        d = col2.slider("d (I)", 0, 2, 1)
+        q = col3.slider("q (MA)", 0, 5, 1)
     
     st.markdown("### 🔮 Forecast Settings")
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
+    conf_level = st.selectbox("Confidence Level", ["80%", "90%", "95%", "99%"], index=2)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
+
+# RESTORED: Selection parameters summary on the main dashboard
+st.markdown("### 📊 Current Parameters")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Security", ticker)
+m2.metric("Data History", f"{lookback}y")
+m3.metric("Model Mode", model_mode)
+m4.metric("Confidence", conf_level)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MODELING LOGIC
@@ -147,6 +166,7 @@ if refresh_button:
                 else: forecast_prices = fc_vals
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
+                # FIX: Ensure forecast numerical values are properly flattened for display
                 fc_df = pd.DataFrame({"Forecasted Price": np.array(forecast_prices).flatten()}, index=f_dates)
                 results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic, "resid": resid}
             except Exception as e:
@@ -161,6 +181,7 @@ if results:
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical Price", line=dict(color=DARK_BLUE)))
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
+        
     with tab2:
         st.subheader("🔍 Residual Diagnostics")
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -172,16 +193,25 @@ if results:
         stats.probplot(results["resid"], dist="norm", plot=axes[1, 1]); axes[1, 1].set_title("Normal Q-Q Plot")
         plt.tight_layout()
         st.pyplot(fig_diag)
+        
+        lb_test = acorr_ljungbox(results["resid"], lags=[10], return_df=True)
+        p_val = lb_test['lb_pvalue'].values[0]
+        if p_val > 0.05: st.success(f"✅ Ljung-Box Test (p={p_val:.3f}): Residuals are White Noise.")
+        else: st.warning(f"⚠️ Ljung-Box Test (p={p_val:.3f}): Residuals have structure.")
+
     with tab3:
         st.metric("Optimal Model Order", str(results["order"]))
         st.metric("AIC Score", f"{results['aic']:.2f}")
+        
     with tab4:
+        st.subheader("Forecasted Results Table")
         st.dataframe(results["fc_df"].style.format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             results["fc_df"].to_excel(writer, sheet_name='Forecast')
         st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
+# Educational Hub content 
 with tab5:
     st.header("📖 ARIMA Learning Center")
     st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
@@ -189,10 +219,11 @@ with tab5:
     
     st.subheader("What do the parameters mean?")
     st.markdown("""
-    - [cite_start]**p (AutoRegressive):** Uses the relationship between an observation and a number of lagged observations. [cite: 1]
-    - [cite_start]**d (Integrated):** Uses differencing of raw observations to make the time series stationary. [cite: 1]
-    - [cite_start]**q (Moving Average):** Uses the dependency between an observation and a residual error from a moving average model applied to lagged observations. [cite: 1]
+    * **p (AutoRegressive):** Uses the relationship between an observation and a number of lagged observations. 
+    * **d (Integrated):** Uses differencing of raw observations to make the time series stationary. 
+    * **q (Moving Average):** Uses the dependency between an observation and a residual error from a moving average model applied to lagged observations. 
     """)
+    st.info("💡 **AIC (Akaike Information Criterion):** Measures model quality by rewarding accuracy and penalizing over-complexity. Lower AIC values indicate a better-fitting model.")
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
