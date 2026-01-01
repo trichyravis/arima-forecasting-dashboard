@@ -71,7 +71,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HERO & SIDEBAR
+# UI LAYOUT
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
@@ -106,18 +106,18 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN DASHBOARD PARAMETERS
+# CURRENT PARAMETERS SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selection Parameters")
 pm1, pm2, pm3, pm4 = st.columns(4)
 pm1.metric("Security", ticker)
-pm1.write(f"**Frequency:** {freq}")
+pm1.write(f"**Freq:** {freq}")
 pm2.metric("History", f"{lookback}y")
-pm2.write(f"**Transformation:** {transformation}")
+pm2.write(f"**Trans:** {transformation}")
 pm3.metric("Mode", model_mode)
 if model_mode == "Manual ARIMA":
-    pm3.write(f"**Order (p,d,q):** ({p},{d},{q})")
-pm4.metric("Horizon", f"{forecast_horizon} periods")
+    pm3.write(f"**Order:** ({p},{d},{q})")
+pm4.metric("Horizon", f"{forecast_horizon}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROCESSING
@@ -126,7 +126,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Forecast", "🧪 Backtesting
 results = None
 
 if refresh_button:
-    with st.spinner("Processing Box-Jenkins Analysis..."):
+    with st.spinner("Processing Analysis..."):
         data = yf.download(ticker, start=datetime.now()-timedelta(days=lookback*365))
         if not data.empty:
             raw_prices = data['Close'][ticker] if isinstance(data.columns, pd.MultiIndex) else data['Close']
@@ -134,6 +134,7 @@ if refresh_button:
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
             
+            # Backtest Split
             bt_size = min(30, len(raw_prices)//5)
             bt_train_raw, bt_actual_raw = raw_prices[:-bt_size], raw_prices[-bt_size:]
             
@@ -149,17 +150,22 @@ if refresh_button:
             try:
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False)
-                    fc = model.predict(n_periods=forecast_horizon)
+                    fc, conf_int = model.predict(n_periods=forecast_horizon, return_conf_int=True)
                     order, aic, resid, fit_obj = model.order, model.aic(), model.resid(), model
+                    
                     bt_model = pm.auto_arima(bt_train_series, seasonal=False)
                     bt_fc = bt_model.predict(n_periods=bt_size)
                 else:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
-                    fc = fit.forecast(steps=forecast_horizon)
+                    fc_res = fit.get_forecast(steps=forecast_horizon)
+                    fc = fc_res.predicted_mean
+                    conf_int = fc_res.conf_int(alpha=0.05) # 95% CI
                     order, aic, resid, fit_obj = (p, d, q), fit.aic, fit.resid, fit
+                    
                     bt_fit = ARIMA(bt_train_series, order=(p, d, q)).fit()
                     bt_fc = bt_fit.forecast(steps=bt_size)
 
+                # Inversion Helper
                 def invert(fc_vals, last_p, t):
                     if t == "Log Returns": return last_p * np.exp(np.cumsum(fc_vals))
                     if t == "Log Prices": return np.exp(fc_vals)
@@ -167,10 +173,17 @@ if refresh_button:
                     return fc_vals
 
                 inv_fc = invert(fc, raw_prices.iloc[-1], transformation)
+                inv_lower = invert(conf_int[:, 0] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 0], raw_prices.iloc[-1], transformation)
+                inv_upper = invert(conf_int[:, 1] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 1], raw_prices.iloc[-1], transformation)
                 inv_bt = invert(bt_fc, bt_train_raw.iloc[-1], transformation)
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
-                fc_df = pd.DataFrame({"Forecasted Price": np.array(inv_fc).flatten()}, index=f_dates)
+                fc_df = pd.DataFrame({
+                    "Forecasted Price": np.array(inv_fc).flatten(),
+                    "Lower Bound (95%)": np.array(inv_lower).flatten(),
+                    "Upper Bound (95%)": np.array(inv_upper).flatten()
+                }, index=f_dates)
+                
                 bt_comp = pd.DataFrame({"Actual Price": bt_actual_raw.values, "Predicted Price": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
                 bt_comp["Variance (%)"] = ((bt_comp["Predicted Price"] - bt_comp["Actual Price"]) / bt_comp["Actual Price"]) * 100
                 
@@ -188,7 +201,16 @@ if refresh_button:
 if results:
     with tab1:
         fig = go.Figure()
+        # Historical
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical", line=dict(color=DARK_BLUE)))
+        # Confidence Interval Shading
+        fig.add_trace(go.Scatter(
+            x=results["fc_df"].index.tolist() + results["fc_df"].index.tolist()[::-1],
+            y=results["fc_df"]["Upper Bound (95%)"].tolist() + results["fc_df"]["Lower Bound (95%)"].tolist()[::-1],
+            fill='toself', fillcolor='rgba(255,165,0,0.2)', line=dict(color='rgba(255,255,255,0)'),
+            hoverinfo="skip", showlegend=True, name="95% Confidence Interval"
+        ))
+        # Forecast Line
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
 
@@ -219,21 +241,26 @@ if results:
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
 
     with tab5:
-        st.dataframe(results["fc_df"].style.format("{:.2f}"), use_container_width=True)
+        st.subheader("📋 Dynamic Forecast Export Table")
+        # Enhancing Table appearance with Heatmap/Background gradient
+        st.dataframe(
+            results["fc_df"].style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}"),
+            use_container_width=True
+        )
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer: results["fc_df"].to_excel(writer, sheet_name='Forecast')
         st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
 with tab6:
     st.header("📖 ARIMA Learning Center")
-    st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
     
     st.markdown("""
     ### 🏔️ Stages of the Lifecycle
     1. **Identification**: Transform the data (differencing/logs) to achieve **Stationarity**.
     2. **Estimation**: Determine the optimal **p** (AutoRegressive) and **q** (Moving Average) parameters.
-    3. **Diagnostics**: Validate that the residuals resemble **White Noise** (using ACF plots).
+    3. **Diagnostics**: Validate that the residuals resemble **White Noise**.
     """)
+    st.info("💡 **Confidence Intervals:** Represent the range where the actual price is likely to fall with 95% probability based on historical volatility.")
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
