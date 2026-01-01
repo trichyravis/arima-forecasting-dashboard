@@ -1,39 +1,20 @@
 
 # Core Framework
 streamlit>=1.28.0
-streamlit-option-menu>=0.3.2
 
-# Data Processing
+# Data Processing & Time Series
 pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.11.0
-
-# Time Series & ARIMA
 statsmodels>=0.14.0
 pmdarima>=2.0.4
 
 # Data Fetching
 yfinance>=0.2.32
-requests>=2.31.0
 
 # Visualization
 plotly>=5.17.0
 matplotlib>=3.8.0
-seaborn>=0.12.0
 
-# Date & Time
-python-dateutil>=2.8.2
-pytz>=2023.3
-
-# Data Export
+# Data Export (for Excel/CSV downloads)
 openpyxl>=3.1.0
-
-# Machine Learning
-scikit-learn>=1.3.0
-
-# Utilities
-python-dotenv>=1.0.0
-pyyaml>=6.0
-
-# Performance
-joblib>=1.3.1
