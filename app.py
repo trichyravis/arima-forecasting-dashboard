@@ -39,7 +39,7 @@ ALL_TICKERS = {"^NSEI": "NIFTY 50", "^BSESN": "SENSEX", "RELIANCE.NS": "Reliance
 DEFAULT_TICKER = "^NSEI"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIGURATION & CSS (FIXED TEXT VISIBILITY)
+# PAGE CONFIGURATION & CSS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon=HERO_EMOJI, layout="wide")
@@ -66,18 +66,23 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* Ensure text inside Selectboxes and Inputs is visible (Dark text on light background) */
-    div[data-baseweb="select"] > div, 
-    div[data-baseweb="base-input"] input {{
-        color: {DARK_BLUE} !important;
+    /* FIX: Ensure dropdown selection text is dark and visible */
+    div[data-baseweb="select"] > div {{
+        color: #333333 !important;
     }}
     
-    /* Style the Refresh Button */
+    /* FIX: Ensure text being typed in inputs is visible */
+    input {{
+        color: #333333 !important;
+    }}
+
+    /* Refresh Button Styling */
     .stButton>button {{
         background-color: {GOLD_COLOR} !important;
         color: {DARK_BLUE} !important;
         font-weight: bold !important;
         border-radius: 10px !important;
+        border: none !important;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -136,7 +141,7 @@ with st.sidebar:
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL", use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN LOGIC & OUTPUT
+# MAIN LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(list(TAB_NAMES.values()))
@@ -170,7 +175,7 @@ if refresh_button:
                     lower_ci, upper_ci = ci_df.iloc[:, 0].values, ci_df.iloc[:, 1].values
                     aic, bic, resid = model.aic, model.bic, model.resid
 
-                # INVERSION
+                # INVERSION LOGIC
                 last_price = raw_prices.iloc[train_size - 1]
                 if transformation == "Price Level":
                     inv_fc, inv_low, inv_high = fc, lower_ci, upper_ci
@@ -189,7 +194,7 @@ if refresh_button:
             except Exception as e:
                 st.error(f"Model Error: {e}")
 
-# Display Logic (Tabs)
+# Display Tabs
 if results:
     with tab1:
         fig = go.Figure()
@@ -208,8 +213,7 @@ if results:
         st.metric("Optimal ARIMA Order", str(results['order']))
         st.metric("AIC", round(results['aic'], 2)); st.metric("BIC", round(results['bic'], 2))
     with tab4:
-        st.dataframe(pd.DataFrame({"Date": f_dates, "Forecast": results['fc'], "Lower": results['low'], "Upper": results['high']}))
+        st.dataframe(pd.DataFrame({"Date": f_dates, "Forecast": results['fc'], "Lower": results['low'], "Upper": results['high']}), use_container_width=True)
 with tab5:
     st.markdown("### Box-Jenkins Methodology")
     st.write("This dashboard follows the identification, estimation, and diagnostic stages of time series forecasting.")
-    ```
