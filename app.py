@@ -213,12 +213,3 @@ with tab5:
     st.markdown("### Box-Jenkins Methodology")
     st.write("This dashboard follows the identification, estimation, and diagnostic stages of time series forecasting.")
     ```
-
-### What was fixed:
-1.  **CSS Selectors:** Instead of using `*` (which hits everything), I targeted specific sidebar labels and markdown elements for the white color. 
-2.  **Input Specificity:** I added a rule to ensure the `div[data-baseweb="select"]` (Streamlit's dropdowns) keeps dark text so you can see your selections.
-3.  **Refresh Button:** I gave the button a gold background to make it pop against the blue sidebar.
-
-**Next step:** You don't need to provide the other repository files unless you want me to integrate specific custom data loaders or complex post-processing logic from them! 
-
-Would you like me to add a **Download CSV** button to the Forecast Table tab so you can export the results?
