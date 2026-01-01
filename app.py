@@ -9,7 +9,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.graphics.tsaplots import plot_acf
 import matplotlib.pyplot as plt
-import seaborn as sns
+import seaborn as sns  # Ensure this is in requirements.txt
 from scipy import stats
 import plotly.graph_objects as go
 import pmdarima as pm
@@ -47,57 +47,29 @@ st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <style>
-    /* Hero Header */
     .hero-title {{ 
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%); 
         padding: 2rem; border-radius: 20px; margin-bottom: 2rem; 
         box-shadow: 0 12px 30px rgba(0, 51, 102, 0.4); border: 4px solid {DARK_BLUE}; 
         color: white; text-align: center;
     }}
-    
-    /* Sidebar Styling */
     [data-testid="stSidebar"] {{ 
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important; 
     }}
-    
-    /* UNIVERSAL WHITE TEXT: Headers, Labels, and Radio Options */
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] .stMarkdown p,
-    [data-testid="stSidebar"] div[role="radiogroup"] {{ 
-        color: white !important; 
-        font-weight: 600 !important;
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] div[role="radiogroup"] {{ 
+        color: white !important; font-weight: 600 !important;
     }}
-
-    /* Target specific radio button text labels */
-    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p,
-    [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {{
+    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p, [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {{
         color: white !important;
     }}
-    
-    /* Target radio button item text specifically */
-    [data-testid="stSidebar"] .st-ae div {{
-        color: white !important;
-    }}
-
-    /* INPUT VISIBILITY: Keep text INSIDE dropdowns/inputs Dark for readability */
-    div[data-baseweb="select"] > div,
-    input {{ 
-        color: {DARK_BLUE} !important; 
-    }}
-
-    /* Slider numbers fix */
-    [data-testid="stSidebar"] .st-at {{
-        color: white !important;
-    }}
-
-    /* Refresh Button Styling */
+    [data-testid="stSidebar"] .st-ae div {{ color: white !important; }}
+    div[data-baseweb="select"] > div, input {{ color: {DARK_BLUE} !important; }}
+    [data-testid="stSidebar"] .st-at {{ color: white !important; }}
     .stButton>button {{
         background-color: {GOLD_COLOR} !important;
         color: {DARK_BLUE} !important;
         font-weight: bold !important;
         border-radius: 10px !important;
-        border: none !important;
         width: 100%;
         margin-top: 1rem;
     }}
@@ -105,7 +77,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT - HERO & SIDEBAR
+# UI LAYOUT
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <div class="hero-title">
@@ -137,9 +109,6 @@ with st.sidebar:
     conf_level = st.selectbox("Confidence Level", ["80%", "90%", "95%", "99%"], index=2)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN PAGE METRICS
-# ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selections")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Security", ticker)
@@ -148,7 +117,7 @@ m3.metric("Mode", model_mode)
 m4.metric("Confidence", conf_level)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN LOGIC
+# MODELING LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4 = st.tabs(["📈 Forecast Chart", "🔍 Residual Diagnostics", "📊 Model Metrics", "📋 Export Data"])
 results = None
@@ -170,15 +139,14 @@ if refresh_button:
 
             try:
                 if model_mode == "Auto ARIMA":
-                    model = pm.auto_arima(train_series, seasonal=False, stepwise=True)
-                    fc_vals = model.predict(n_periods=forecast_horizon)
-                    order, aic, resid = model.order, model.aic(), model.resid()
+                    model_fit = pm.auto_arima(train_series, seasonal=False, stepwise=True)
+                    fc_vals = model_fit.predict(n_periods=forecast_horizon)
+                    order, aic, resid = model_fit.order, model_fit.aic(), model_fit.resid()
                 else:
-                    fit = ARIMA(train_series, order=(p, d, q)).fit()
-                    fc_vals = fit.forecast(steps=forecast_horizon)
-                    order, aic, resid = (p, d, q), fit.aic, fit.resid
+                    model_manual = ARIMA(train_series, order=(p, d, q)).fit()
+                    fc_vals = model_manual.forecast(steps=forecast_horizon)
+                    order, aic, resid = (p, d, q), model_manual.aic, model_manual.resid
 
-                # Inversion logic
                 last_p = raw_prices.iloc[-1]
                 if transformation == "Log Returns": forecast_prices = last_p * np.exp(np.cumsum(fc_vals))
                 elif transformation == "Log Prices": forecast_prices = np.exp(fc_vals)
@@ -193,7 +161,7 @@ if refresh_button:
                 st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DISPLAY TABS
+# TABS OUTPUT
 # ═══════════════════════════════════════════════════════════════════════════════
 if results:
     with tab1:
@@ -204,13 +172,13 @@ if results:
         
     with tab2:
         st.subheader("🔍 Residual Diagnostics")
-        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes[0, 0].plot(results["resid"]); axes[0, 0].set_title("Standardized Residuals")
         sns.histplot(results["resid"], kde=True, ax=axes[0, 1]); axes[0, 1].set_title("Residual Normality")
         plot_acf(results["resid"], ax=axes[1, 0], lags=20); axes[1, 0].set_title("Residual ACF")
         stats.probplot(results["resid"], dist="norm", plot=axes[1, 1]); axes[1, 1].set_title("Normal Q-Q Plot")
         plt.tight_layout()
-        st.pyplot(fig)
+        st.pyplot(fig_diag)
         
         lb_test = acorr_ljungbox(results["resid"], lags=[10], return_df=True)
         p_val = lb_test['lb_pvalue'].values[0]
