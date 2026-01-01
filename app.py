@@ -83,10 +83,12 @@ with st.sidebar:
     st.markdown("### ⚙️ Model Configuration")
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
+    
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         c1, c2, c3 = st.columns(3)
         p, d, q = c1.slider("p", 0, 5, 1), c2.slider("d", 0, 2, 1), c3.slider("q", 0, 5, 1)
+    
     st.markdown("### 🔮 Forecast Settings")
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
@@ -104,7 +106,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CURRENT PARAMETERS SUMMARY
+# MAIN DASHBOARD PARAMETERS SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selection Parameters")
 pm1, pm2, pm3, pm4 = st.columns(4)
@@ -113,8 +115,9 @@ pm1.write(f"**Freq:** {freq}")
 pm2.metric("History", f"{lookback}y")
 pm2.write(f"**Trans:** {transformation}")
 pm3.metric("Mode", model_mode)
-if model_mode == "Manual ARIMA": pm3.write(f"**Order:** ({p},{d},{q})")
-pm4.metric("Horizon", f"{forecast_horizon}")
+if model_mode == "Manual ARIMA":
+    pm3.write(f"**Order:** ({p},{d},{q})")
+pm4.metric("Horizon", f"{forecast_horizon} periods")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CORE PROCESSING
@@ -131,6 +134,12 @@ if refresh_button:
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
             
+            # --- VOLATILITY INDEX CALCULATION ---
+            returns = raw_prices.pct_change().dropna()
+            # Annualizing factor
+            ann_factor = 252 if freq == "Daily" else 52 if freq == "Weekly" else 12
+            ann_vol = returns.std() * np.sqrt(ann_factor)
+
             # Backtest Data Split
             bt_size = min(30, len(raw_prices)//5)
             bt_train_raw, bt_actual_raw = raw_prices[:-bt_size], raw_prices[-bt_size:]
@@ -145,7 +154,7 @@ if refresh_button:
             bt_train_series = get_series(bt_train_raw, transformation)
 
             try:
-                # Main Forecast
+                # Main Forecast Fit
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False)
                     fc, conf_int = model.predict(n_periods=forecast_horizon, return_conf_int=True)
@@ -188,7 +197,8 @@ if refresh_button:
                 mask = train_series != 0
                 mape = np.mean(np.abs((train_series[mask] - fitted[mask]) / train_series[mask])) * 100 if np.any(mask) else 0
 
-                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
+                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, 
+                           "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series, "vol": ann_vol}
             except Exception as e: st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -225,12 +235,15 @@ if results:
         plt.tight_layout(); st.pyplot(fig_diag)
 
     with tab4:
-        st.subheader("📊 Comprehensive Model Metrics")
+        st.subheader("📊 Comprehensive Model Metrics & Risk Profile")
         c1, c2, c3 = st.columns(3)
         c1.metric("Optimal Order", str(results["order"]))
         c1.metric("AIC Score", f"{results['aic']:.2f}")
         c2.metric("RMSE", f"{results['rmse']:.4f}")
         c2.metric("MAPE Accuracy", f"{results['mape']:.2f}%")
+        
+        # --- VOLATILITY INDEX CARD ---
+        c3.metric("Annualized Volatility", f"{results['vol']*100:.2f}%")
         lb_p = acorr_ljungbox(results["resid"], lags=[10], return_df=True)['lb_pvalue'].values[0]
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
 
@@ -243,11 +256,21 @@ if results:
 
 with tab6:
     st.header("📖 ARIMA Learning Center")
-        st.markdown("""
-    ### 🏔️ Stages of the Box-Jenkins Methodology
-    1. **Identification**: Using transformations (Logs/Returns) to reach **Stationarity**.
-    2. **Estimation**: Finding the optimal $p, d, q$ parameters.
-    3. **Diagnostics**: Ensuring errors are **White Noise** (Checking ACF & Q-Q Plots).
+    st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
+    
+    
+    
+    st.markdown("""
+### 🏔️ Stages of the Box-Jenkins Methodology
+1. **Identification**: Using transformations (Logs/Returns) to reach **Stationarity**.
+2. **Estimation**: Finding the optimal $p, d, q$ parameters.
+3. **Diagnostics**: Ensuring errors are **White Noise** (Checking ACF & Q-Q Plots).
+
+### 🎯 Key Parameters & Volatility
+* **p (AR - Autoregressive):** Past price influence. High p means today's price depends heavily on recent history.
+* **d (I - Integrated):** The number of differencing steps required to remove trends and achieve stationarity.
+* **q (MA - Moving Average):** Past error influence. It models the impact of sudden market shocks.
+* **Volatility Index:** Represents the annualized standard deviation of returns. High volatility results in wider **Confidence Intervals** (the shaded orange area), reflecting increased market uncertainty.
     """)
     st.info("💡 **Backtesting Tip:** In the Backtesting tab, we hide the last month of data to see if the model could have predicted the market correctly. A low Variance % indicates high predictive confidence.")
 
