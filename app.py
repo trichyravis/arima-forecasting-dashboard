@@ -49,7 +49,7 @@ ALL_TICKERS = {
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="🏔️", layout="wide")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS STYLING (Fixed for Sidebar Visibility & Selection Clarity)
+# CSS STYLING
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <style>
@@ -69,6 +69,10 @@ st.markdown(f"""
     [data-testid="stSidebar"] div[role="radiogroup"] p,
     [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {{ 
         color: white !important; font-weight: 600 !important;
+    }}
+    /* Radio item text specifically */
+    [data-testid="stSidebar"] .st-ae div {{
+        color: white !important;
     }}
     /* Keep selectbox/input text Dark Blue for readability on white background */
     div[data-baseweb="select"] > div, input {{ color: {DARK_BLUE} !important; }}
@@ -107,7 +111,6 @@ with st.sidebar:
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
     
-    # RESTORED: Manual Parameter Selection Sliders
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         col1, col2, col3 = st.columns(3)
@@ -120,7 +123,20 @@ with st.sidebar:
     conf_level = st.selectbox("Confidence Level", ["80%", "90%", "95%", "99%"], index=2)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
 
-# RESTORED: Selection parameters summary on the main dashboard
+    # PROFILE SECTION
+    st.markdown("---")
+    st.markdown("### Prof. V. Ravichandran")
+    st.markdown("*28+ Years Finance Experience*")
+    st.markdown("*10+ Years Academic Excellence*")
+    st.markdown(f"""
+        <a href="https://www.linkedin.com/in/trichyravis" target="_blank" 
+           style="display: inline-block; padding: 0.5rem 1rem; background-color: #0077b5; 
+           color: white; text-decoration: none; border-radius: 5px; font-weight: bold; width: 100%; text-align: center;">
+            🔗 LinkedIn Profile
+        </a>
+    """, unsafe_allow_html=True)
+
+# DASHBOARD METRICS
 st.markdown("### 📊 Current Parameters")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Security", ticker)
@@ -166,7 +182,6 @@ if refresh_button:
                 else: forecast_prices = fc_vals
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
-                # FIX: Ensure forecast numerical values are properly flattened for display
                 fc_df = pd.DataFrame({"Forecasted Price": np.array(forecast_prices).flatten()}, index=f_dates)
                 results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic, "resid": resid}
             except Exception as e:
@@ -181,7 +196,6 @@ if results:
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical Price", line=dict(color=DARK_BLUE)))
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
-        
     with tab2:
         st.subheader("🔍 Residual Diagnostics")
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -193,37 +207,40 @@ if results:
         stats.probplot(results["resid"], dist="norm", plot=axes[1, 1]); axes[1, 1].set_title("Normal Q-Q Plot")
         plt.tight_layout()
         st.pyplot(fig_diag)
-        
-        lb_test = acorr_ljungbox(results["resid"], lags=[10], return_df=True)
-        p_val = lb_test['lb_pvalue'].values[0]
-        if p_val > 0.05: st.success(f"✅ Ljung-Box Test (p={p_val:.3f}): Residuals are White Noise.")
-        else: st.warning(f"⚠️ Ljung-Box Test (p={p_val:.3f}): Residuals have structure.")
-
     with tab3:
         st.metric("Optimal Model Order", str(results["order"]))
         st.metric("AIC Score", f"{results['aic']:.2f}")
-        
     with tab4:
-        st.subheader("Forecasted Results Table")
         st.dataframe(results["fc_df"].style.format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             results["fc_df"].to_excel(writer, sheet_name='Forecast')
         st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
-# Educational Hub content 
 with tab5:
     st.header("📖 ARIMA Learning Center")
     st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
     
     
-    st.subheader("What do the parameters mean?")
+    st.subheader("1. The Three Parameters (p, d, q)")
     st.markdown("""
-    * **p (AutoRegressive):** Uses the relationship between an observation and a number of lagged observations. 
-    * **d (Integrated):** Uses differencing of raw observations to make the time series stationary. 
-    * **q (Moving Average):** Uses the dependency between an observation and a residual error from a moving average model applied to lagged observations. 
+    * [cite_start]**p (AutoRegressive) [cite: 1][cite_start]:** Uses the relationship between an observation and a specific number of lagged (past) observations[cite: 1]. It captures the memory of the market.
+    * [cite_start]**d (Integrated) [cite: 1][cite_start]:** Uses differencing of raw observations (e.g., subtracting today's price from yesterday's) to make the time series 'stationary' (stable mean and variance)[cite: 1].
+    * [cite_start]**q (Moving Average) [cite: 1][cite_start]:** Uses the dependency between an observation and a residual error from a moving average model applied to lagged observations[cite: 1]. It accounts for the 'shocks' or noise in the data.
     """)
-    st.info("💡 **AIC (Akaike Information Criterion):** Measures model quality by rewarding accuracy and penalizing over-complexity. Lower AIC values indicate a better-fitting model.")
+
+    st.subheader("2. Model Evaluation")
+    st.markdown("""
+    * [cite_start]**AIC (Akaike Information Criterion)[cite: 1]:** A mathematical method for evaluating how well a model fits the data. [cite_start]It rewards accuracy but penalizes models that are overly complex (too many parameters)[cite: 1]. **Lower AIC values indicate a better-fitting model.**
+    * **Stationarity:** Financial data is often non-stationary (trending). We use transformations like **Log Returns** to stabilize the variance and make the data predictable.
+    * **White Noise:** In a perfect model, the residuals (errors) should look like 'White Noise'—random, with no remaining patterns or memory.
+    """)
+
+    st.subheader("3. Diagnostic Interpretation")
+    st.markdown("""
+    * **Residual ACF Plot:** If any bars exceed the blue shaded area, the model has 'left behind' some information that could have been used to forecast better.
+    * **Normal Q-Q Plot:** If the blue dots follow the red line, your model's errors are normally distributed, which is a sign of a robust statistical fit.
+    """)
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
