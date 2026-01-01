@@ -1,20 +1,12 @@
 
-# Core Framework
-streamlit>=1.28.0
-
-# Data Processing & Time Series
-pandas>=2.0.0
-numpy>=1.24.0
-scipy>=1.11.0
-statsmodels>=0.14.0
-pmdarima>=2.0.4
-
-# Data Fetching
-yfinance>=0.2.32
-
-# Visualization
-plotly>=5.17.0
-matplotlib>=3.8.0
-
-# Data Export (for Excel/CSV downloads)
-openpyxl>=3.1.0
+streamlit
+pandas
+numpy
+yfinance
+statsmodels
+pmdarima
+matplotlib
+seaborn
+scipy
+plotly
+openpyxl
