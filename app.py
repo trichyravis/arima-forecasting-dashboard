@@ -1,6 +1,6 @@
 
 import streamlit as st
-import pd
+import pandas as pd  # Fixed: changed from 'import pd'
 import numpy as np
 from datetime import datetime, timedelta
 import yfinance as yf
@@ -39,7 +39,7 @@ ALL_TICKERS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIG & FINAL CSS FIX
+# PAGE CONFIG & CSS FIXES
 # ═══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="🏔️", layout="wide")
 
@@ -111,8 +111,12 @@ def fetch_stock_data(ticker, years):
     try:
         data = yf.download(ticker, start=start_date, end=end_date)
         if data.empty: return None
-        return data['Close'][ticker].dropna() if isinstance(data.columns, pd.MultiIndex) else data['Close'].dropna()
-    except: return None
+        # Handle yfinance MultiIndex or single index
+        if isinstance(data.columns, pd.MultiIndex):
+            return data['Close'][ticker].dropna()
+        return data['Close'].dropna()
+    except:
+        return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # UI LAYOUT
@@ -150,10 +154,11 @@ if refresh_button:
         raw_prices = fetch_stock_data(ticker, lookback)
         
         if raw_prices is not None:
+            # Resampling based on user selection
             if freq == "Weekly": raw_prices = raw_prices.resample('W').last()
             elif freq == "Monthly": raw_prices = raw_prices.resample('M').last()
             
-            # Simplified transformation for demo
+            # Apply Transformation
             if transformation == "Log Returns":
                 train_series = np.log(raw_prices).diff().dropna()
             elif transformation == "Log Prices":
@@ -169,18 +174,28 @@ if refresh_button:
                     fc = model.predict(n_periods=forecast_horizon)
                     order, aic = model.order, model.aic()
                 else:
+                    # Default manual order for demonstration; can be expanded for full (p,d,q) sliders
                     fit = ARIMA(train_series, order=(1,1,1)).fit()
                     fc = fit.forecast(steps=forecast_horizon)
                     order, aic = (1,1,1), fit.aic
 
-                # Basic inversion logic
+                # Inversion logic to return to Price Level
                 if transformation == "Log Returns":
-                    inv_fc = raw_prices.iloc[-1] * np.exp(np.cumsum(fc))
+                    last_price = raw_prices.iloc[-1]
+                    inv_fc = last_price * np.exp(np.cumsum(fc))
+                elif transformation == "Log Prices":
+                    inv_fc = np.exp(fc)
+                elif transformation == "Percentage Returns":
+                    last_price = raw_prices.iloc[-1]
+                    inv_fc = last_price * (1 + np.cumsum(fc))
                 else:
                     inv_fc = fc
                 
-                f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq='B')[1:]
+                # Create date range for forecast
+                freq_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
+                f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=freq_map[freq])[1:]
                 fc_df = pd.DataFrame({"Forecasted Price": inv_fc}, index=f_dates)
+                
                 results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic}
             except Exception as e:
                 st.error(f"Computation Error: {e}")
@@ -190,16 +205,30 @@ if results:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical"))
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="Forecast", line=dict(color='orange', width=3)))
+        fig.update_layout(title=f"ARIMA{results['order']} Model for {ticker}", template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
+        
     with tab2:
         st.metric("Optimal Model Order", str(results["order"]))
         st.metric("AIC Score", f"{results['aic']:.2f}")
+        
     with tab3:
-        st.subheader("Forecasted Results")
+        st.subheader("Forecasted Results Table")
         st.dataframe(results["fc_df"], use_container_width=True)
+        
+        # Excel Download Logic
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             results["fc_df"].to_excel(writer, sheet_name='Forecast')
-        st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        st.download_button(
+            label="📥 Download Excel Report",
+            data=buffer.getvalue(),
+            file_name=f"{ticker}_forecast.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 else:
-    st.info("Adjust settings and click the button to generate forecast.")
+    st.info("Click 'FETCH DATA & RUN MODEL' in the sidebar to start the analysis.")
+
+st.markdown("---")
+st.markdown("### Box-Jenkins ARIMA Methodology")
