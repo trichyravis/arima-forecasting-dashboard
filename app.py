@@ -247,20 +247,6 @@ def transform_series(series, method):
         return series.pct_change().dropna()
     return series
 
-def invert_transform(forecast, last_obs, method, original_series):
-    """Invert transformation for forecast interpretation"""
-    if method == "Price Level":
-        return forecast
-    elif method == "Log Prices":
-        return np.exp(forecast)
-    elif method in ["Log Returns", "Percentage Returns"]:
-        cumsum = np.cumsum(forecast)
-        if method == "Log Returns":
-            return last_obs * np.exp(cumsum)
-        else:
-            return last_obs * (1 + cumsum)
-    return forecast
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # HERO HEADER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -309,7 +295,7 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.markdown(f" ### {SIDEBAR_SECTIONS['model_config']}")
+    st.markdown(f"### {SIDEBAR_SECTIONS['model_config']}")
     
     transformation = st.radio(
         "Price Transformation",
@@ -338,7 +324,7 @@ with st.sidebar:
         p, d, q = None, None, None
     
     st.markdown("---")
-    st.markdown(f" ### {SIDEBAR_SECTIONS['forecast_settings']}")
+    st.markdown(f"### {SIDEBAR_SECTIONS['forecast_settings']}")
     
     forecast_horizon = st.slider(
         "Forecast Horizon (Days)",
@@ -435,7 +421,6 @@ if refresh_button:
                             max_p=5, max_q=5, max_d=2
                         )
                         fitted = auto_model.fit(train)
-                        # 🔑 CRITICAL: Call as function for pmdarima
                         fitted_values_series = fitted.fittedvalues()
                         residuals_series = fitted.resid()
                         forecast, conf_int = fitted.predict(
@@ -447,9 +432,9 @@ if refresh_button:
                         bic = fitted.bic()
                         order = fitted.order
                     else:
+                        # Manual ARIMA
                         model = ARIMA(train, order=(p, d, q))
                         fitted = model.fit()
-                        # ✅ Property for statsmodels
                         fitted_values_series = fitted.fittedvalues
                         residuals_series = fitted.resid
                         forecast = fitted.forecast(steps=forecast_horizon)
@@ -460,10 +445,30 @@ if refresh_button:
                         bic = fitted.bic
                         order = (p, d, q)
                     
+                    # Invert forecast (always starts from last price)
                     last_price = price_data.iloc[-1]
-                    forecast_inverted = invert_transform(forecast, last_price, transformation, price_data)
-                    lower_ci = invert_transform(conf_int[:, 0], last_price, transformation, price_data)
-                    upper_ci = invert_transform(conf_int[:, 1], last_price, transformation, price_data)
+                    if transformation == "Price Level":
+                        forecast_inverted = forecast
+                        lower_ci = conf_int[:, 0]
+                        upper_ci = conf_int[:, 1]
+                    elif transformation == "Log Prices":
+                        forecast_inverted = np.exp(forecast)
+                        lower_ci = np.exp(conf_int[:, 0])
+                        upper_ci = np.exp(conf_int[:, 1])
+                    else:  # Log Returns or % Returns
+                        cumsum = np.cumsum(forecast)
+                        if transformation == "Log Returns":
+                            forecast_inverted = last_price * np.exp(cumsum)
+                            lower_cumsum = np.cumsum(conf_int[:, 0])
+                            upper_cumsum = np.cumsum(conf_int[:, 1])
+                            lower_ci = last_price * np.exp(lower_cumsum)
+                            upper_ci = last_price * np.exp(upper_cumsum)
+                        else:
+                            forecast_inverted = last_price * (1 + cumsum)
+                            lower_cumsum = np.cumsum(conf_int[:, 0])
+                            upper_cumsum = np.cumsum(conf_int[:, 1])
+                            lower_ci = last_price * (1 + lower_cumsum)
+                            upper_ci = last_price * (1 + upper_cumsum)
                     
                     results = {
                         'price_data': price_data,
@@ -476,7 +481,8 @@ if refresh_button:
                         'order': order,
                         'aic': aic,
                         'bic': bic,
-                        'residuals': residuals_series
+                        'residuals': residuals_series,
+                        'transformation': transformation
                     }
                     
                 except Exception as e:
@@ -486,31 +492,70 @@ if refresh_button:
 with tab1:
     st.subheader("Time Series Chart with Forecast")
     if results:
-        # Reconstruct full fitted series in original scale
-        train_orig = results['price_data'].loc[results['fitted_values'].index]
-        fitted_inverted = invert_transform(
-            results['fitted_values'],
-            train_orig.iloc[0] / np.exp(results['fitted_values'].iloc[0]) if transformation == "Log Returns" else train_orig.iloc[0],
-            transformation,
-            results['price_data']
-        )
+        original_prices = results['price_data']
+        fitted_vals = results['fitted_values']
+        transformation = results['transformation']
         
+        # 🔑 CORRECT FITTED VALUE RECONSTRUCTION FOR MANUAL & AUTO
+        if transformation == "Price Level":
+            fitted_prices = fitted_vals
+        elif transformation == "Log Prices":
+            fitted_prices = np.exp(fitted_vals)
+        else:
+            # Log Returns or Percentage Returns: cumulative from prior price
+            first_idx = fitted_vals.index[0]
+            orig_index = original_prices.index
+            if first_idx in orig_index:
+                pos = orig_index.get_loc(first_idx)
+                if pos > 0:
+                    base_price = original_prices.iloc[pos - 1]
+                else:
+                    base_price = original_prices.iloc[0]
+                    # Adjust: assume first return applied to base_price
+                    if transformation == "Log Returns":
+                        fitted_prices = base_price * np.exp(np.cumsum(fitted_vals))
+                    else:
+                        fitted_prices = base_price * (1 + np.cumsum(fitted_vals))
+                    fitted_prices.index = fitted_vals.index
+            else:
+                # Fallback: use first original price
+                base_price = original_prices.iloc[0]
+                if transformation == "Log Returns":
+                    fitted_prices = base_price * np.exp(np.cumsum(fitted_vals))
+                else:
+                    fitted_prices = base_price * (1 + np.cumsum(fitted_vals))
+                fitted_prices.index = fitted_vals.index
+                pos = 0
+            
+            if 'fitted_prices' not in locals() or not isinstance(fitted_prices, pd.Series):
+                # Reconstruct only if not done above
+                cum_returns = np.cumsum(fitted_vals)
+                if transformation == "Log Returns":
+                    fitted_prices = base_price * np.exp(cum_returns)
+                else:
+                    fitted_prices = base_price * (1 + cum_returns)
+                fitted_prices.index = fitted_vals.index
+
+        # Plot
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=results['price_data'].index,
-            y=results['price_data'],
+            x=original_prices.index,
+            y=original_prices,
             mode='lines',
             name='Historical',
             line=dict(color='blue')
         ))
         fig.add_trace(go.Scatter(
-            x=fitted_inverted.index,
-            y=fitted_inverted,
+            x=fitted_prices.index,
+            y=fitted_prices,
             mode='lines',
             name='Fitted',
             line=dict(color='green')
         ))
-        future_dates = pd.date_range(start=results['price_data'].index[-1] + timedelta(days=1), periods=forecast_horizon)
+        future_dates = pd.date_range(
+            start=original_prices.index[-1] + timedelta(days=1),
+            periods=len(results['forecast'])
+        )
         fig.add_trace(go.Scatter(
             x=future_dates,
             y=results['forecast'],
@@ -528,7 +573,6 @@ with tab1:
         fig.add_trace(go.Scatter(
             x=future_dates,
             y=results['lower_ci'],
-            mode='lines',
             fill='tonexty',
             fillcolor='rgba(255,165,0,0.2)',
             line=dict(width=0),
@@ -571,16 +615,27 @@ with tab3:
             st.metric("BIC", f"{results['bic']:.2f}")
         with col2:
             if len(results['test']) > 0:
-                test_orig = results['price_data'].loc[results['test'].index]
-                fitted_test = results['fitted_values'].iloc[-len(results['test']):]
-                fitted_test_inv = invert_transform(
-                    fitted_test,
-                    test_orig.iloc[0] / np.exp(fitted_test.iloc[0]) if transformation == "Log Returns" else test_orig.iloc[0],
-                    transformation,
-                    results['price_data']
-                )
-                rmse = np.sqrt(np.mean((fitted_test_inv.values - test_orig.values)**2))
-                mape = np.mean(np.abs((test_orig.values - fitted_test_inv.values) / test_orig.values)) * 100
+                # Reconstruct test predictions in price space
+                test_fitted = results['fitted_values'].iloc[-len(results['test']):]
+                trans = results['transformation']
+                orig_test = results['price_data'].loc[test_fitted.index]
+                
+                if trans == "Price Level":
+                    pred_test = test_fitted
+                elif trans == "Log Prices":
+                    pred_test = np.exp(test_fitted)
+                else:
+                    first_idx = test_fitted.index[0]
+                    pos = results['price_data'].index.get_loc(first_idx)
+                    base = results['price_data'].iloc[pos - 1] if pos > 0 else results['price_data'].iloc[0]
+                    cum = np.cumsum(test_fitted)
+                    if trans == "Log Returns":
+                        pred_test = base * np.exp(cum)
+                    else:
+                        pred_test = base * (1 + cum)
+                
+                rmse = np.sqrt(np.mean((pred_test.values - orig_test.values)**2))
+                mape = np.mean(np.abs((orig_test.values - pred_test.values) / orig_test.values)) * 100
                 st.metric("RMSE", f"{rmse:.2f}")
                 st.metric("MAPE", f"{mape:.2f}%")
             else:
@@ -595,7 +650,7 @@ with tab4:
     st.subheader(f"{forecast_horizon}-Day Forecast")
     if results:
         forecast_df = pd.DataFrame({
-            'Date': pd.date_range(start=results['price_data'].index[-1] + timedelta(days=1), periods=forecast_horizon),
+            'Date': pd.date_range(start=results['price_data'].index[-1] + timedelta(days=1), periods=len(results['forecast'])),
             'Forecast': results['forecast'],
             'Lower CI': results['lower_ci'],
             'Upper CI': results['upper_ci']
