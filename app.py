@@ -29,7 +29,7 @@ import pmdarima as pm
 warnings.filterwarnings("ignore")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION (INLINE FOR PORTABILITY - REPLACE WITH src.config IF PREFERRED)
+# CONFIGURATION (INLINE FOR PORTABILITY)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Colors
@@ -115,12 +115,11 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CUSTOM CSS STYLING - MOUNTAIN PATH DESIGN SYSTEM
+# CUSTOM CSS STYLING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 st.markdown(f"""
     <style>
-    /* ... (Your existing CSS remains unchanged) ... */
     .hero-title {{
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%);
         padding: 2rem 2rem;
@@ -255,7 +254,6 @@ def invert_transform(forecast, last_obs, method, original_series):
     elif method == "Log Prices":
         return np.exp(forecast)
     elif method in ["Log Returns", "Percentage Returns"]:
-        # Cumulative reconstruction from last observed price
         cumsum = np.cumsum(forecast)
         if method == "Log Returns":
             return last_obs * np.exp(cumsum)
@@ -281,7 +279,7 @@ st.markdown(f"""
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR - DATA SELECTION & MODEL CONFIGURATION
+# SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -299,7 +297,7 @@ with st.sidebar:
     lookback_years = st.selectbox(
         "Years of Historical Data",
         options=[1, 2, 3, 5, 7, 10],
-        index=3,  # Default 5 years (index 3)
+        index=3,
         help="More data = more stable model, but older patterns"
     )
     
@@ -311,12 +309,12 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.markdown(f"### {SIDEBAR_SECTIONS['model_config']}")
+    st.markdown(f" ### {SIDEBAR_SECTIONS['model_config']}")
     
     transformation = st.radio(
         "Price Transformation",
         ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"],
-        index=2,  # Default: Log Returns
+        index=2,
         help="Log returns reduce heteroscedasticity"
     )
     
@@ -340,7 +338,7 @@ with st.sidebar:
         p, d, q = None, None, None
     
     st.markdown("---")
-    st.markdown(f"### {SIDEBAR_SECTIONS['forecast_settings']}")
+    st.markdown(f" ### {SIDEBAR_SECTIONS['forecast_settings']}")
     
     forecast_horizon = st.slider(
         "Forecast Horizon (Days)",
@@ -395,7 +393,6 @@ with st.sidebar:
 # MAIN CONTENT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Metrics Row
 st.markdown("### 📊 Data Summary")
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1: st.metric("Ticker", ticker)
@@ -405,92 +402,99 @@ with col4: st.metric("Forecast Days", forecast_horizon)
 with col5: st.metric("Train/Test", f"{train_pct}% / {100-train_pct}%")
 st.markdown("---")
 
-# Tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs(list(TAB_NAMES.values()))
-
-# Placeholder for results
 results = {}
 
 if refresh_button:
     with st.spinner("🔄 Fetching data and fitting ARIMA model..."):
-        # 1. Fetch data
         price_data = fetch_data(ticker, lookback_years)
         if price_data is None or len(price_data) < 30:
             st.error("❌ Not enough data. Try a different ticker or longer lookback period.")
         else:
-            # 2. Resample if needed
             if frequency == "Weekly":
                 price_data = price_data.resample('W').last()
             elif frequency == "Monthly":
                 price_data = price_data.resample('M').last()
             
-            # 3. Transform
             transformed = transform_series(price_data, transformation)
-            
-            # 4. Split
             n = len(transformed)
-            train_size = int(train_pct / 100 * n)
-            train, test = transformed[:train_size], transformed[train_size:]
-            
-            # 5. Fit model
-            try:
-                if model_mode == "Auto ARIMA":
-                    auto_model = pm.auto_arima(
-                        train,
-                        seasonal=False,
-                        stepwise=True,
-                        suppress_warnings=True,
-                        error_action="ignore",
-                        max_p=5, max_q=5, max_d=2
-                    )
-                    order = auto_model.order
-                    fitted = auto_model.fit(train)
-                    forecast, conf_int = fitted.predict(
-                        n_periods=forecast_horizon,
-                        return_conf_int=True,
-                        alpha=1 - float(confidence_level.strip('%'))/100
-                    )
-                    aic = fitted.aic()
-                    bic = fitted.bic()
-                else:
-                    model = ARIMA(train, order=(p, d, q))
-                    fitted = model.fit()
-                    forecast = fitted.forecast(steps=forecast_horizon)
-                    conf_int = fitted.get_forecast(steps=forecast_horizon).conf_int(
-                        alpha=1 - float(confidence_level.strip('%'))/100
-                    )
-                    order = (p, d, q)
-                    aic = fitted.aic
-                    bic = fitted.bic
+            if n < 10:
+                st.error("❌ Not enough data after transformation.")
+            else:
+                train_size = int(train_pct / 100 * n)
+                train, test = transformed[:train_size], transformed[train_size:]
                 
-                # Invert forecast if needed
-                last_price = price_data.iloc[-1]
-                forecast_inverted = invert_transform(forecast, last_price, transformation, price_data)
-                lower_ci = invert_transform(conf_int[:, 0], last_price, transformation, price_data)
-                upper_ci = invert_transform(conf_int[:, 1], last_price, transformation, price_data)
-                
-                # Store results
-                results = {
-                    'price_data': price_data,
-                    'train': train,
-                    'test': test,
-                    'fitted_values': fitted.fittedvalues,
-                    'forecast': forecast_inverted,
-                    'lower_ci': lower_ci,
-                    'upper_ci': upper_ci,
-                    'order': order,
-                    'aic': aic,
-                    'bic': bic,
-                    'residuals': fitted.resid
-                }
-                
-            except Exception as e:
-                st.error(f"❌ Model fitting failed: {e}")
+                try:
+                    if model_mode == "Auto ARIMA":
+                        auto_model = pm.auto_arima(
+                            train,
+                            seasonal=False,
+                            stepwise=True,
+                            suppress_warnings=True,
+                            error_action="ignore",
+                            max_p=5, max_q=5, max_d=2
+                        )
+                        fitted = auto_model.fit(train)
+                        # 🔑 CRITICAL: Call as function for pmdarima
+                        fitted_values_series = fitted.fittedvalues()
+                        residuals_series = fitted.resid()
+                        forecast, conf_int = fitted.predict(
+                            n_periods=forecast_horizon,
+                            return_conf_int=True,
+                            alpha=1 - float(confidence_level.strip('%'))/100
+                        )
+                        aic = fitted.aic()
+                        bic = fitted.bic()
+                        order = fitted.order
+                    else:
+                        model = ARIMA(train, order=(p, d, q))
+                        fitted = model.fit()
+                        # ✅ Property for statsmodels
+                        fitted_values_series = fitted.fittedvalues
+                        residuals_series = fitted.resid
+                        forecast = fitted.forecast(steps=forecast_horizon)
+                        conf_int = fitted.get_forecast(steps=forecast_horizon).conf_int(
+                            alpha=1 - float(confidence_level.strip('%'))/100
+                        )
+                        aic = fitted.aic
+                        bic = fitted.bic
+                        order = (p, d, q)
+                    
+                    last_price = price_data.iloc[-1]
+                    forecast_inverted = invert_transform(forecast, last_price, transformation, price_data)
+                    lower_ci = invert_transform(conf_int[:, 0], last_price, transformation, price_data)
+                    upper_ci = invert_transform(conf_int[:, 1], last_price, transformation, price_data)
+                    
+                    results = {
+                        'price_data': price_data,
+                        'train': train,
+                        'test': test,
+                        'fitted_values': fitted_values_series,
+                        'forecast': forecast_inverted,
+                        'lower_ci': lower_ci,
+                        'upper_ci': upper_ci,
+                        'order': order,
+                        'aic': aic,
+                        'bic': bic,
+                        'residuals': residuals_series
+                    }
+                    
+                except Exception as e:
+                    st.error(f"❌ Model fitting failed: {str(e)}")
 
-# TAB 1: Time Series Chart
+# ───────────── TAB 1: TIME SERIES CHART ─────────────
 with tab1:
     st.subheader("Time Series Chart with Forecast")
     if results:
+        # Reconstruct full fitted series in original scale
+        train_orig = results['price_data'].loc[results['fitted_values'].index]
+        fitted_inverted = invert_transform(
+            results['fitted_values'],
+            train_orig.iloc[0] / np.exp(results['fitted_values'].iloc[0]) if transformation == "Log Returns" else train_orig.iloc[0],
+            transformation,
+            results['price_data']
+        )
+        
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=results['price_data'].index,
@@ -499,13 +503,6 @@ with tab1:
             name='Historical',
             line=dict(color='blue')
         ))
-        # Fitted (in-sample)
-        fitted_inverted = invert_transform(
-            results['fitted_values'], 
-            results['price_data'][results['fitted_values'].index[0] - timedelta(days=1)], 
-            transformation, 
-            results['price_data']
-        )
         fig.add_trace(go.Scatter(
             x=fitted_inverted.index,
             y=fitted_inverted,
@@ -513,7 +510,6 @@ with tab1:
             name='Fitted',
             line=dict(color='green')
         ))
-        # Forecast
         future_dates = pd.date_range(start=results['price_data'].index[-1] + timedelta(days=1), periods=forecast_horizon)
         fig.add_trace(go.Scatter(
             x=future_dates,
@@ -538,19 +534,24 @@ with tab1:
             line=dict(width=0),
             showlegend=False
         ))
-        fig.update_layout(title="Time Series with ARIMA Forecast", xaxis_title="Date", yaxis_title="Price")
+        fig.update_layout(
+            title="Time Series with ARIMA Forecast",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            hovermode="x unified"
+        )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate chart")
 
-# TAB 2: Diagnostics
+# ───────────── TAB 2: DIAGNOSTICS ─────────────
 with tab2:
     st.subheader("Residual Diagnostics")
     if results:
         residuals = results['residuals']
         fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-        plot_acf(residuals, ax=axes[0,0], lags=20)
-        plot_pacf(residuals, ax=axes[0,1], lags=20)
+        plot_acf(residuals, ax=axes[0,0], lags=min(20, len(residuals)//2), alpha=0.05)
+        plot_pacf(residuals, ax=axes[0,1], lags=min(20, len(residuals)//2), alpha=0.05)
         axes[1,0].hist(residuals, bins=20, edgecolor='k')
         axes[1,0].set_title('Histogram of Residuals')
         from scipy import stats
@@ -560,7 +561,7 @@ with tab2:
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate diagnostics")
 
-# TAB 3: Metrics
+# ───────────── TAB 3: METRICS ─────────────
 with tab3:
     st.subheader("Model Metrics")
     if results:
@@ -569,23 +570,27 @@ with tab3:
             st.metric("AIC", f"{results['aic']:.2f}")
             st.metric("BIC", f"{results['bic']:.2f}")
         with col2:
-            # Compute RMSE if test set exists
             if len(results['test']) > 0:
-                test_pred = invert_transform(
-                    results['fitted_values'].iloc[-len(results['test']):],
-                    results['price_data'][results['fitted_values'].index[-len(results['test'])] - timedelta(days=1)],
+                test_orig = results['price_data'].loc[results['test'].index]
+                fitted_test = results['fitted_values'].iloc[-len(results['test']):]
+                fitted_test_inv = invert_transform(
+                    fitted_test,
+                    test_orig.iloc[0] / np.exp(fitted_test.iloc[0]) if transformation == "Log Returns" else test_orig.iloc[0],
                     transformation,
                     results['price_data']
                 )
-                rmse = np.sqrt(np.mean((test_pred.values - results['price_data'].loc[test_pred.index].values)**2))
+                rmse = np.sqrt(np.mean((fitted_test_inv.values - test_orig.values)**2))
+                mape = np.mean(np.abs((test_orig.values - fitted_test_inv.values) / test_orig.values)) * 100
                 st.metric("RMSE", f"{rmse:.2f}")
+                st.metric("MAPE", f"{mape:.2f}%")
             else:
-                st.metric("RMSE", "N/A (no test set)")
-        st.write(f"**ARIMA Order**: {results['order']}")
+                st.metric("RMSE", "N/A")
+                st.metric("MAPE", "N/A")
+        st.markdown(f"**ARIMA Order**: {results['order']}")
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate metrics")
 
-# TAB 4: Forecast Table
+# ───────────── TAB 4: FORECAST TABLE ─────────────
 with tab4:
     st.subheader(f"{forecast_horizon}-Day Forecast")
     if results:
@@ -599,15 +604,86 @@ with tab4:
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate forecast")
 
-# TAB 5: Help (unchanged)
+# ───────────── TAB 5: HELP ─────────────
 with tab5:
     st.subheader("Box-Jenkins ARIMA Methodology")
     st.markdown("""
     ### 📚 Understanding ARIMA Forecasting
-    ... (your existing help text) ...
-    """)  # Keep your original help content
+    
+    **ARIMA = AutoRegressive Integrated Moving Average**
+    
+    #### The 6-Stage Box-Jenkins Approach:
+    
+    **1️⃣ Data Preparation**
+    - Collect historical daily prices
+    - Remove outliers and handle missing values
+    - Apply log transformation to stabilize variance
+    
+    **2️⃣ Stationarity Testing**
+    - Use ADF (Augmented Dickey-Fuller) test
+    - Non-stationary series → apply differencing (d)
+    - Goal: Remove trend and seasonality
+    
+    **3️⃣ Model Selection (ACF/PACF)**
+    - ACF plot → identify q (MA order)
+    - PACF plot → identify p (AR order)
+    - Use auto_arima for automatic selection
+    
+    **4️⃣ Parameter Estimation**
+    - Maximum Likelihood Estimation (MLE)
+    - Minimize AIC/BIC criteria
+    - Convergence = optimal parameters found
+    
+    **5️⃣ Diagnostic Checking**
+    - Ljung-Box test: Are residuals white noise? (p > 0.05 = good)
+    - Shapiro-Wilk: Are residuals normally distributed? (p > 0.05 = normal)
+    - Q-Q plot: Visual normality check
+    
+    **6️⃣ Forecasting & Monitoring**
+    - Generate point forecasts + confidence intervals
+    - Track actual vs. predicted
+    - Retrain if forecast errors exceed thresholds
+    
+    ### 🎯 ARIMA(p,d,q) Parameters:
+    
+    - **p (AR order)**: # previous values used for prediction (0-5)
+    - **d (Differencing)**: # times to difference for stationarity (0-2)
+    - **q (MA order)**: # previous errors used for prediction (0-5)
+    
+    **Examples:**
+    - ARIMA(1,1,1): Basic trend + mean reversion
+    - ARIMA(2,1,2): More complex patterns
+    - ARIMA(0,1,0): Random walk (naive forecast)
+    
+    ### ✅ Good Model Signs:
+    
+    ✓ Ljung-Box p-value > 0.05 (white noise residuals)  
+    ✓ Shapiro-Wilk p-value > 0.05 (normal distribution)  
+    ✓ Low RMSE & MAPE on test set  
+    ✓ ACF/PACF within confidence bands  
+    ✓ No significant spikes in residuals  
+    
+    ### ⚠️ When to Reconsider:
+    
+    ⚠️ Ljung-Box p < 0.05 (structure in residuals)  
+    ⚠️ High MAPE (>5%) on test set  
+    ⚠️ Try SARIMA for seasonal patterns  
+    ⚠️ Consider ARIMAX with exogenous variables  
+    
+    ### 📊 Forecast Interpretation:
+    
+    **Point Forecast**: Most likely value  
+    **95% CI**: 95% confident actual will fall within bounds  
+    **Wider CI**: Higher uncertainty (consider risk!)  
+    **Narrower CI**: More confidence in forecast  
+    
+    ---
+    
+    **📖 Further Reading:**
+    - Box, G. E. P., & Jenkins, G. M. (1970). *Time Series Analysis, Forecasting and Control*
+    - Brockwell, P. J., & Davis, R. A. (2016). *Introduction to Time Series and Forecasting*
+    """)
 
-# Footer
 st.markdown("---")
 st.markdown(f"""
     <div style='text-align: center; color: #999; font-size: 0.9em; margin-top: 2rem;'>
@@ -617,7 +693,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# Debug
+# Debug Info
 if st.sidebar.checkbox("🔧 Show Debug Info", key="debug_checkbox"):
     st.sidebar.markdown("---")
     st.sidebar.write("**DEBUG INFORMATION**")
