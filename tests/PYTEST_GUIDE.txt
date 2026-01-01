@@ -1,0 +1,275 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                    ✅ COMPLETE PYTEST TEST SUITE GUIDE                     ║
+║                                                                              ║
+║              ARIMA Forecasting Dashboard - Unit Tests & Coverage             ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📁 TEST FILES STRUCTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+tests/
+├── __init__.py                 # Test package
+├── conftest.py                 # Global pytest fixtures
+├── test_loader.py              # Data loader tests
+├── test_arima.py               # ARIMA model tests
+└── test_helpers.py             # Helper functions tests
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📊 TEST COVERAGE
+═══════════════════════════════════════════════════════════════════════════════
+
+test_loader.py (50+ tests):
+─────────────────────────────
+✅ DataLoader initialization
+✅ Series validation (valid, empty, short, NaN, duplicates)
+✅ CSV file loading
+✅ Excel file loading
+✅ Series preparation
+✅ Timezone handling
+✅ Edge cases (single value, constant series, large values, negative values)
+
+test_arima.py (45+ tests):
+──────────────────────────
+✅ ARIMA model initialization
+✅ Stationarity testing (ADF, KPSS)
+✅ Parameter fitting (different orders)
+✅ Forecast generation
+✅ Confidence intervals
+✅ Residuals extraction
+✅ Model summary and metrics
+✅ Ensemble methods
+✅ Model comparison
+✅ Error handling
+
+test_helpers.py (55+ tests):
+────────────────────────────
+✅ Date utilities (date range, trading days)
+✅ Statistical calculations (returns, volatility, trend)
+✅ Data validation
+✅ Formatting (numbers, percentages, dates)
+✅ Edge cases and special scenarios
+
+═══════════════════════════════════════════════════════════════════════════════
+ 🚀 QUICK START
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Install pytest:
+   $ pip install pytest pytest-cov
+
+2. Run all tests:
+   $ pytest tests/
+
+3. Run with verbose output:
+   $ pytest tests/ -v
+
+4. Run specific test file:
+   $ pytest tests/test_loader.py -v
+
+5. Run specific test:
+   $ pytest tests/test_loader.py::TestDataLoader::test_loader_initialization -v
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📋 COMMON PYTEST COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
+
+Run all tests:
+$ pytest tests/
+
+Run with coverage:
+$ pytest tests/ --cov=src --cov-report=html
+
+Run tests by marker:
+$ pytest tests/ -m slow          # Run slow tests only
+$ pytest tests/ -m "not slow"    # Skip slow tests
+
+Run tests matching pattern:
+$ pytest tests/ -k "test_loader"
+
+Stop after first failure:
+$ pytest tests/ -x
+
+Show print statements:
+$ pytest tests/ -s
+
+Run in parallel (fast):
+$ pip install pytest-xdist
+$ pytest tests/ -n auto
+
+Run with detailed traceback:
+$ pytest tests/ --tb=long
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📊 TEST COVERAGE REPORT
+═══════════════════════════════════════════════════════════════════════════════
+
+Generate HTML coverage report:
+$ pytest tests/ --cov=src --cov-report=html
+
+View report:
+$ open htmlcov/index.html
+
+Coverage by module:
+$ pytest tests/ --cov=src --cov-report=term-missing
+
+Target coverage:
+✅ src/data/loader.py: 85%+
+✅ src/models/arima.py: 80%+
+✅ src/utils/helpers.py: 90%+
+
+═══════════════════════════════════════════════════════════════════════════════
+ 🔧 PYTEST CONFIGURATION
+═══════════════════════════════════════════════════════════════════════════════
+
+Create pytest.ini in project root:
+
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --tb=short
+markers =
+    slow: slow running tests
+    integration: integration tests
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📝 RUNNING TESTS BY CATEGORY
+═══════════════════════════════════════════════════════════════════════════════
+
+Data Loading Tests:
+$ pytest tests/test_loader.py -v
+
+Model Tests:
+$ pytest tests/test_arima.py -v
+
+Utility Tests:
+$ pytest tests/test_helpers.py -v
+
+Statistical Tests (from helpers):
+$ pytest tests/test_helpers.py::TestStatisticalCalculations -v
+
+Formatting Tests:
+$ pytest tests/test_helpers.py::TestFormatting -v
+
+═══════════════════════════════════════════════════════════════════════════════
+ ✅ EXAMPLE TEST RUNS
+═══════════════════════════════════════════════════════════════════════════════
+
+Test data validation:
+$ pytest tests/test_loader.py::TestDataLoader::test_validate_series_valid -v
+
+Test ARIMA forecasting:
+$ pytest tests/test_arima.py::TestARIMAModel::test_forecast_generation -v
+
+Test returns calculation:
+$ pytest tests/test_helpers.py::TestStatisticalCalculations::test_calculate_returns_percentage -v
+
+Run all data loader tests:
+$ pytest tests/test_loader.py::TestDataLoader -v
+
+═══════════════════════════════════════════════════════════════════════════════
+ 🐛 TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+Problem: ImportError: No module named 'src'
+Solution: Run pytest from project root directory
+
+Problem: Tests fail on data validation
+Solution: Ensure pandas and numpy are installed: pip install pandas numpy
+
+Problem: "Too slow" tests
+Solution: Skip slow tests with: pytest tests/ -m "not slow"
+
+Problem: Cache directory errors
+Solution: Create data/cache directory or use tmp_path fixture (already done)
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📦 TEST FIXTURES (conftest.py)
+═══════════════════════════════════════════════════════════════════════════════
+
+Session-scoped fixtures (created once per session):
+- sample_prices: 250-period price series
+- sample_returns: 250-period returns series
+
+Function-scoped fixtures (created per test):
+- temp_data_dir: Temporary directory with subdirectories
+
+Using fixtures in tests:
+def test_something(sample_prices):
+    assert len(sample_prices) == 250
+
+═══════════════════════════════════════════════════════════════════════════════
+ 🎯 BEST PRACTICES
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Run tests before committing code
+✅ Write tests for new features
+✅ Keep tests independent (no dependencies between tests)
+✅ Use descriptive test names
+✅ Use fixtures for common setup
+✅ Test edge cases and error conditions
+✅ Mock external dependencies if needed
+✅ Keep tests fast (unit tests should run < 1 second)
+✅ Use assert statements, not if-raise patterns
+
+═══════════════════════════════════════════════════════════════════════════════
+ 📚 TEST FILE SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+test_loader.py:
+────────────────
+Classes: TestDataLoader, TestDataValidation, TestEdgeCases
+Tests: 20+ comprehensive tests
+Coverage: CSV/Excel loading, validation, timezone handling
+
+test_arima.py:
+──────────────
+Classes: TestARIMAModel, TestARIMAEnsemble, TestModelComparison, TestErrorHandling
+Tests: 30+ comprehensive tests
+Coverage: Model fitting, forecasting, stationarity, ensemble methods
+
+test_helpers.py:
+────────────────
+Classes: TestDateUtilities, TestDataValidation, TestStatisticalCalculations, 
+         TestFormatting, TestModelUtilities, TestEdgeCases
+Tests: 40+ comprehensive tests
+Coverage: Date handling, statistics, formatting, trend analysis
+
+═══════════════════════════════════════════════════════════════════════════════
+ 🚀 CONTINUOUS INTEGRATION (CI) SETUP
+═══════════════════════════════════════════════════════════════════════════════
+
+For GitHub Actions, create .github/workflows/tests.yml:
+
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10']
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+    - name: Run tests
+      run: |
+        pytest tests/ --cov=src --cov-report=xml
+    - name: Upload coverage
+      uses: codecov/codecov-action@v2
+
+═══════════════════════════════════════════════════════════════════════════════
+
