@@ -71,7 +71,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT
+# HERO & SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
@@ -83,12 +83,10 @@ with st.sidebar:
     st.markdown("### ⚙️ Model Configuration")
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
-    
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         c1, c2, c3 = st.columns(3)
         p, d, q = c1.slider("p", 0, 5, 1), c2.slider("d", 0, 2, 1), c3.slider("q", 0, 5, 1)
-    
     st.markdown("### 🔮 Forecast Settings")
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
@@ -106,7 +104,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PARAMETERS SUMMARY
+# CURRENT PARAMETERS SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selection Parameters")
 pm1, pm2, pm3, pm4 = st.columns(4)
@@ -119,13 +117,13 @@ if model_mode == "Manual ARIMA": pm3.write(f"**Order:** ({p},{d},{q})")
 pm4.metric("Horizon", f"{forecast_horizon}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROCESSING
+# CORE PROCESSING
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Forecast", "🧪 Backtesting", "🔍 Diagnostics", "📊 Metrics", "📋 Export", "📚 Educational Hub"])
 results = None
 
 if refresh_button:
-    with st.spinner("Processing Analysis..."):
+    with st.spinner("Processing Box-Jenkins Analysis..."):
         data = yf.download(ticker, start=datetime.now()-timedelta(days=lookback*365))
         if not data.empty:
             raw_prices = data['Close'][ticker] if isinstance(data.columns, pd.MultiIndex) else data['Close']
@@ -133,40 +131,36 @@ if refresh_button:
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
             
-            # Volatility Analysis (Std Dev of Returns)
-            returns = raw_prices.pct_change().dropna()
-            volatility = returns.std() * np.sqrt(252 if freq == "Daily" else 52 if freq == "Weekly" else 12)
-            
-            # Backtest Split
+            # Backtest Data Split
             bt_size = min(30, len(raw_prices)//5)
             bt_train_raw, bt_actual_raw = raw_prices[:-bt_size], raw_prices[-bt_size:]
             
-            def transform_data(series, t):
+            def get_series(series, t):
                 if t == "Log Returns": return np.log(series).diff().dropna()
                 if t == "Log Prices": return np.log(series)
                 if t == "Percentage Returns": return series.pct_change().dropna()
                 return series
 
-            train_series = transform_data(raw_prices, transformation)
-            bt_train_series = transform_data(bt_train_raw, transformation)
+            train_series = get_series(raw_prices, transformation)
+            bt_train_series = get_series(bt_train_raw, transformation)
 
             try:
+                # Main Forecast
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False)
                     fc, conf_int = model.predict(n_periods=forecast_horizon, return_conf_int=True)
                     order, aic, resid, fit_obj = model.order, model.aic(), model.resid(), model
                     
                     bt_model = pm.auto_arima(bt_train_series, seasonal=False)
-                    bt_fc = bt_model.predict(n_periods=bt_size)
+                    bt_fc_vals = bt_model.predict(n_periods=bt_size)
                 else:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
                     fc_res = fit.get_forecast(steps=forecast_horizon)
-                    fc = fc_res.predicted_mean
-                    conf_int = fc_res.conf_int(alpha=0.05)
+                    fc, conf_int = fc_res.predicted_mean, fc_res.conf_int(alpha=0.05)
                     order, aic, resid, fit_obj = (p, d, q), fit.aic, fit.resid, fit
                     
                     bt_fit = ARIMA(bt_train_series, order=(p, d, q)).fit()
-                    bt_fc = bt_fit.forecast(steps=bt_size)
+                    bt_fc_vals = bt_fit.forecast(steps=bt_size)
 
                 def invert(fc_vals, last_p, t):
                     if t == "Log Returns": return last_p * np.exp(np.cumsum(fc_vals))
@@ -175,27 +169,26 @@ if refresh_button:
                     return fc_vals
 
                 inv_fc = invert(fc, raw_prices.iloc[-1], transformation)
-                inv_lower = invert(conf_int[:, 0] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 0], raw_prices.iloc[-1], transformation)
-                inv_upper = invert(conf_int[:, 1] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 1], raw_prices.iloc[-1], transformation)
-                inv_bt = invert(bt_fc, bt_train_raw.iloc[-1], transformation)
+                inv_low = invert(conf_int[:, 0] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 0], raw_prices.iloc[-1], transformation)
+                inv_high = invert(conf_int[:, 1] if model_mode == "Auto ARIMA" else conf_int.iloc[:, 1], raw_prices.iloc[-1], transformation)
+                inv_bt = invert(bt_fc_vals, bt_train_raw.iloc[-1], transformation)
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
                 fc_df = pd.DataFrame({
                     "Forecasted Price": np.array(inv_fc).flatten(),
-                    "Lower Bound (95%)": np.array(inv_lower).flatten(),
-                    "Upper Bound (95%)": np.array(inv_upper).flatten()
+                    "Lower Bound (95%)": np.array(inv_low).flatten(),
+                    "Upper Bound (95%)": np.array(inv_high).flatten()
                 }, index=f_dates)
                 
-                bt_comp = pd.DataFrame({"Actual": bt_actual_raw.values, "Predicted": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
-                bt_comp["Variance (%)"] = ((bt_comp["Predicted"] - bt_comp["Actual"]) / bt_comp["Actual"]) * 100
+                bt_comp = pd.DataFrame({"Actual Price": bt_actual_raw.values, "Predicted Price": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
+                bt_comp["Variance (%)"] = ((bt_comp["Predicted Price"] - bt_comp["Actual Price"]) / bt_comp["Actual Price"]) * 100
                 
                 fitted = fit_obj.fittedvalues() if hasattr(fit_obj, 'fittedvalues') and callable(fit_obj.fittedvalues) else fit_obj.fittedvalues
                 rmse = np.sqrt(np.mean((fitted - train_series)**2))
                 mask = train_series != 0
                 mape = np.mean(np.abs((train_series[mask] - fitted[mask]) / train_series[mask])) * 100 if np.any(mask) else 0
 
-                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, 
-                           "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "vol": volatility, "train_series": train_series}
+                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
             except Exception as e: st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -209,10 +202,19 @@ if results:
             x=results["fc_df"].index.tolist() + results["fc_df"].index.tolist()[::-1],
             y=results["fc_df"]["Upper Bound (95%)"].tolist() + results["fc_df"]["Lower Bound (95%)"].tolist()[::-1],
             fill='toself', fillcolor='rgba(255,165,0,0.2)', line=dict(color='rgba(255,255,255,0)'),
-            name="95% Confidence Band"
+            hoverinfo="skip", showlegend=True, name="95% Confidence Interval"
         ))
-        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="Forecast", line=dict(color='orange', width=3)))
+        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.subheader("🧪 Backtesting: Forecast vs. Actual")
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Actual Price", line=dict(color=DARK_BLUE)))
+        fig_bt.add_trace(go.Scatter(x=results["bt_comp"].index, y=results["bt_comp"]["Predicted Price"], name="Model Prediction", line=dict(color='red', dash='dash')))
+        st.plotly_chart(fig_bt, use_container_width=True)
+        st.write("**Variance Analysis Table**")
+        st.dataframe(results["bt_comp"].style.format("{:.2f}"), use_container_width=True)
 
     with tab3:
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -223,32 +225,31 @@ if results:
         plt.tight_layout(); st.pyplot(fig_diag)
 
     with tab4:
-        st.subheader("📊 Model Metrics & Risk Profile")
+        st.subheader("📊 Comprehensive Model Metrics")
         c1, c2, c3 = st.columns(3)
         c1.metric("Optimal Order", str(results["order"]))
         c1.metric("AIC Score", f"{results['aic']:.2f}")
         c2.metric("RMSE", f"{results['rmse']:.4f}")
         c2.metric("MAPE Accuracy", f"{results['mape']:.2f}%")
-        c3.metric("Annual Volatility", f"{results['vol']*100:.2f}%")
         lb_p = acorr_ljungbox(results["resid"], lags=[10], return_df=True)['lb_pvalue'].values[0]
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
 
     with tab5:
-        st.subheader("📋 Heatmapped Export Table")
+        st.subheader("📋 Heatmapped Forecast Table")
         st.dataframe(results["fc_df"].style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer: results["fc_df"].to_excel(writer, sheet_name='Forecast')
-        st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
+        st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
 with tab6:
     st.header("📖 ARIMA Learning Center")
-    
-    st.markdown("""
-    ### 🏔️ Understanding Risk & Uncertainty
-    * **Annual Volatility**: Represents the standard deviation of returns. A higher volatility stock will naturally have wider **Confidence Bands**.
-    * **95% Confidence Band**: The shaded area on the forecast chart. Statistically, there is a 95% chance the actual price will fall within this range if market conditions remain consistent.
+        st.markdown("""
+    ### 🏔️ Stages of the Box-Jenkins Methodology
+    1. **Identification**: Using transformations (Logs/Returns) to reach **Stationarity**.
+    2. **Estimation**: Finding the optimal $p, d, q$ parameters.
+    3. **Diagnostics**: Ensuring errors are **White Noise** (Checking ACF & Q-Q Plots).
     """)
-    st.info("💡 **Diagnostic Check:** If the Ljung-Box p-value is > 0.05, the model's residuals are 'White Noise', signifying a high-quality statistical fit.")
+    st.info("💡 **Backtesting Tip:** In the Backtesting tab, we hide the last month of data to see if the model could have predicted the market correctly. A low Variance % indicates high predictive confidence.")
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
