@@ -25,11 +25,16 @@ except ImportError:
 warnings.filterwarnings("ignore")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION & BRANDING
 # ═══════════════════════════════════════════════════════════════════════════════
 DARK_BLUE = "#003366"
 LIGHT_BLUE = "#0066CC"
 GOLD_COLOR = "#FFD700"
+BRAND_NAME = "The Mountain Path - World of Finance"  # Restored missing variable
+
+HERO_TITLE = "ARIMA FORECASTING DASHBOARD"
+HERO_SUBTITLE = "Real-Time Box-Jenkins Time Series Forecasting for Indian Equities"
+HERO_DESCRIPTION = "Prof. V. Ravichandran | 28+ Years Corporate Finance & Banking Experience"
 
 ALL_TICKERS = {
     "^NSEI": "NIFTY 50", 
@@ -44,7 +49,7 @@ ALL_TICKERS = {
 st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="🏔️", layout="wide")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS STYLING
+# CSS STYLING (Fixed for Visibility)
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <style>
@@ -60,12 +65,7 @@ st.markdown(f"""
     [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] div[role="radiogroup"] {{ 
         color: white !important; font-weight: 600 !important;
     }}
-    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p, [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {{
-        color: white !important;
-    }}
-    [data-testid="stSidebar"] .st-ae div {{ color: white !important; }}
     div[data-baseweb="select"] > div, input {{ color: {DARK_BLUE} !important; }}
-    [data-testid="stSidebar"] .st-at {{ color: white !important; }}
     .stButton>button {{
         background-color: {GOLD_COLOR} !important;
         color: {DARK_BLUE} !important;
@@ -78,19 +78,16 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HERO SECTION
+# UI LAYOUT
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <div class="hero-title">
-        <h1>ARIMA FORECASTING DASHBOARD</h1>
-        <p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p>
-        <p>Prof. V. Ravichandran | 28+ Years Corporate Finance & Banking Experience</p>
+        <h1>{HERO_TITLE}</h1>
+        <p>{HERO_SUBTITLE}</p>
+        <p>{HERO_DESCRIPTION}</p>
     </div>
 """, unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("### 📊 Data Selection")
     ticker = st.selectbox("Select Ticker", options=list(ALL_TICKERS.keys()), format_func=lambda x: f"{x} - {ALL_TICKERS[x]}")
@@ -104,16 +101,16 @@ with st.sidebar:
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         col1, col2, col3 = st.columns(3)
-        p = col1.slider("p (AR)", 0, 5, 1)
-        d = col2.slider("d (I)", 0, 2, 1)
-        q = col3.slider("q (MA)", 0, 5, 1)
+        p = col1.slider("p", 0, 5, 1)
+        d = col2.slider("d", 0, 2, 1)
+        q = col3.slider("q", 0, 5, 1)
     
     st.markdown("### 🔮 Forecast Settings")
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN LOGIC
+# MODELING LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Forecast", "🔍 Diagnostics", "📊 Metrics", "📋 Export", "📚 Educational Hub"])
 results = None
@@ -165,6 +162,7 @@ if results:
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
     with tab2:
+        st.subheader("🔍 Residual Diagnostics")
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes[0, 0].plot(results["resid"]); axes[0, 0].set_title("Standardized Residuals")
         if HAS_SEABORN: sns.histplot(results["resid"], kde=True, ax=axes[0, 1])
@@ -184,39 +182,17 @@ if results:
             results["fc_df"].to_excel(writer, sheet_name='Forecast')
         st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
-# 📚 EDUCATIONAL HUB CONTENT
 with tab5:
     st.header("📖 ARIMA Learning Center")
-    st.write("Welcome to the educational guide. This dashboard is built on the **Box-Jenkins Methodology**, the gold standard for statistical time series forecasting.")
+    st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
     
     
-
-    st.subheader("1. What is ARIMA?")
-    st.write("""
-    **ARIMA** stands for **A**uto**R**egressive **I**ntegrated **M**oving **A**verage. It predicts future values based on past values (Autoregression) and past errors (Moving Average).
-    
-    * **p (AutoRegressive - AR):** The number of lag observations included in the model. It looks at how much yesterday's price affects today's.
-    * **d (Integrated - I):** The number of times the raw observations are differenced to make the data stationary (stable mean/variance).
-    * **q (Moving Average - MA):** The size of the moving average window applied to forecast errors.
+    st.subheader("What do the parameters mean?")
+    st.markdown("""
+    - [cite_start]**p (AutoRegressive):** Uses the relationship between an observation and a number of lagged observations. [cite: 1]
+    - [cite_start]**d (Integrated):** Uses differencing of raw observations to make the time series stationary. [cite: 1]
+    - [cite_start]**q (Moving Average):** Uses the dependency between an observation and a residual error from a moving average model applied to lagged observations. [cite: 1]
     """)
-
-    st.subheader("2. Key Terminology")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info("**Stationarity:** A property where the mean and variance do not change over time. Stock prices are rarely stationary, which is why we use 'Log Returns' or 'Differencing'.")
-        st.info("**AIC (Akaike Information Criterion):** A measure of model quality. **Lower is better.** It rewards accuracy but penalizes over-complexity.")
-    with col2:
-        st.info("**White Noise:** If residuals are white noise, it means the model has captured all the patterns. Only random, unpredictable error remains.")
-        st.info("**Log Returns:** Calculating the percentage change in log space. This stabilizes the variance of financial data, making the ARIMA model more reliable.")
-
-    st.subheader("3. Understanding Diagnostics")
-    st.write("""
-    * **ACF Plot:** Used to identify the 'q' parameter. If bars stay within the blue shaded area, the residuals are random.
-    * **Q-Q Plot:** If the points lie on the red diagonal line, the errors are normally distributed—a sign of a healthy model.
-    * **Standardized Residuals:** Should look like random 'noise' around zero with no visible trends or patterns.
-    """)
-    
-    st.success("💡 **Pro Tip:** Start with 'Auto ARIMA'. It automatically tests hundreds of (p,d,q) combinations to find the one with the lowest AIC score!")
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
