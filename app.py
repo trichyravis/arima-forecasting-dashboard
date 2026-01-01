@@ -32,7 +32,6 @@ LIGHT_BLUE = "#0066CC"
 GOLD_COLOR = "#FFD700"
 BRAND_NAME = "The Mountain Path - World of Finance"
 
-# Full Nifty 50 List
 NIFTY_50_STOCKS = {
     "^NSEI": "NIFTY 50 INDEX", "^BSESN": "SENSEX INDEX",
     "ADANIENT.NS": "Adani Enterprises", "ADANIPORTS.NS": "Adani Ports", "APOLLOHOSP.NS": "Apollo Hospitals",
@@ -61,32 +60,24 @@ st.set_page_config(page_title="ARIMA Dashboard - The Mountain Path", page_icon="
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
     <style>
-    .hero-title {{ 
-        background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%); 
-        padding: 2rem; border-radius: 20px; margin-bottom: 2rem; 
-        box-shadow: 0 12px 30px rgba(0, 51, 102, 0.4); border: 4px solid {DARK_BLUE}; 
-        color: white; text-align: center;
-    }}
+    .hero-title {{ background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%); padding: 2rem; border-radius: 20px; margin-bottom: 2rem; box-shadow: 0 12px 30px rgba(0, 51, 102, 0.4); border: 4px solid {DARK_BLUE}; color: white; text-align: center; }}
     [data-testid="stSidebar"] {{ background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important; }}
-    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] div[role="radiogroup"] p, [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {{ 
-        color: white !important; font-weight: 600 !important;
-    }}
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] div[role="radiogroup"] p, [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {{ color: white !important; font-weight: 600 !important; }}
     [data-testid="stSidebar"] .st-ae div {{ color: white !important; }}
     div[data-baseweb="select"] > div, input {{ color: {DARK_BLUE} !important; }}
     [data-testid="stSidebar"] .st-at {{ color: white !important; }}
-    .stButton>button {{ background-color: {GOLD_COLOR} !important; color: {DARK_BLUE} !important; font-weight: bold !important; width: 100%; }}
+    .stButton>button {{ background-color: {GOLD_COLOR} !important; color: {DARK_BLUE} !important; font-weight: bold !important; border-radius: 10px !important; width: 100%; }}
     </style>
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT
+# HERO & SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
-st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Nifty 50</p><p>Prof. V. Ravichandran | 28+ Years Experience</p></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("### 📊 Data Selection")
-    ticker = st.selectbox("Select Nifty 50 Stock", options=list(NIFTY_50_STOCKS.keys()), format_func=lambda x: f"{x} - {NIFTY_50_STOCKS[x]}")
+    ticker = st.selectbox("Select Security", options=list(NIFTY_50_STOCKS.keys()), format_func=lambda x: f"{x} - {NIFTY_50_STOCKS[x]}")
     lookback = st.selectbox("Years of Historical Data", [1, 2, 3, 5, 10], index=2)
     freq = st.radio("Data Frequency", ["Daily", "Weekly", "Monthly"])
     
@@ -107,16 +98,8 @@ with st.sidebar:
     st.markdown("### Prof. V. Ravichandran")
     st.markdown(f"<a href='https://www.linkedin.com/in/trichyravis' target='_blank' style='display: block; padding: 0.5rem; background: #0077b5; color: white; text-align: center; text-decoration: none; border-radius: 5px; font-weight: bold;'>🔗 LinkedIn Profile</a>", unsafe_allow_html=True)
 
-# Main Metrics Summary
-st.markdown("### 📊 Current Parameters")
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Stock Selected", ticker)
-m2.metric("History", f"{lookback}y")
-m3.metric("Transformation", transformation)
-m4.metric("Mode", model_mode)
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROCESSING
+# MODELING LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Forecast", "🔍 Diagnostics", "📊 Metrics", "📋 Export", "📚 Educational Hub"])
 results = None
@@ -139,9 +122,11 @@ if refresh_button:
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False, stepwise=True)
                     fc, order, aic, resid = model.predict(n_periods=forecast_horizon), model.order, model.aic(), model.resid()
+                    fit_obj = model
                 else:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
                     fc, order, aic, resid = fit.forecast(steps=forecast_horizon), (p, d, q), fit.aic, fit.resid
+                    fit_obj = fit
 
                 last_p = raw_prices.iloc[-1]
                 if transformation == "Log Returns": inv_fc = last_p * np.exp(np.cumsum(fc))
@@ -151,15 +136,20 @@ if refresh_button:
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
                 fc_df = pd.DataFrame({"Forecasted Price": np.array(inv_fc).flatten()}, index=f_dates)
-                results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic, "resid": resid}
+                
+                results = {"raw": raw_prices, "fc_df": fc_df, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "train_series": train_series}
             except Exception as e: st.error(f"Computation Error: {e}")
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TABS DISPLAY
+# ═══════════════════════════════════════════════════════════════════════════════
 if results:
     with tab1:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical"))
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
+
     with tab2:
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
         axes[0, 0].plot(results["resid"]); axes[0, 0].set_title("Standardized Residuals")
@@ -167,31 +157,52 @@ if results:
         plot_acf(results["resid"], ax=axes[1, 0], lags=20); axes[1, 0].set_title("Residual ACF")
         stats.probplot(results["resid"], dist="norm", plot=axes[1, 1]); axes[1, 1].set_title("Normal Q-Q Plot")
         plt.tight_layout(); st.pyplot(fig_diag)
+
     with tab3:
-        st.metric("Optimal ARIMA Order", str(results["order"]))
-        st.metric("AIC Score (Lower is Better)", f"{results['aic']:.2f}")
+        st.subheader("📊 Comprehensive Model Metrics")
+        c1, c2, c3 = st.columns(3)
+        
+        # 1. Model Selection
+        c1.markdown("#### Selection Criteria")
+        c1.metric("Optimal Order", str(results["order"]))
+        c1.metric("AIC", f"{results['aic']:.2f}")
+        bic = results["fit_obj"].bic() if hasattr(results["fit_obj"], 'bic') else results["fit_obj"].bic
+        c1.metric("BIC", f"{bic:.2f}")
+
+        # 2. Performance Metrics
+        fitted = results["fit_obj"].fittedvalues() if hasattr(results["fit_obj"], 'fittedvalues') and callable(results["fit_obj"].fittedvalues) else results["fit_obj"].fittedvalues
+        actual = results["train_series"]
+        
+        mae = np.mean(np.abs(fitted - actual))
+        rmse = np.sqrt(np.mean((fitted - actual)**2))
+        mape = np.mean(np.abs((actual - fitted) / actual)) * 100
+        
+        c2.markdown("#### Error Metrics")
+        c2.metric("MAE", f"{mae:.4f}")
+        c2.metric("RMSE", f"{rmse:.4f}")
+        c2.metric("MAPE", f"{mape:.2f}%")
+
+        # 3. Statistical Quality
+        ll = results["fit_obj"].loglikelihood() if hasattr(results["fit_obj"], 'loglikelihood') else results["fit_obj"].llf
+        c3.markdown("#### Statistical Quality")
+        c3.metric("Log-Likelihood", f"{ll:.2f}")
+        c3.metric("Ljung-Box p-val", f"{acorr_ljungbox(results['resid'], lags=[10], return_df=True)['lb_pvalue'].values[0]:.3f}")
+
     with tab4:
         st.dataframe(results["fc_df"].style.format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer: results["fc_df"].to_excel(writer, sheet_name='Forecast')
         st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
-with tab5:
-    st.header("📖 ARIMA Learning Center")
-    st.markdown("""
-    ### 1. The Box-Jenkins Methodology
-    The Box-Jenkins approach consists of a three-stage iterative process:
-    - **Identification:** Checking for stationarity and determining the initial (p, d, q).
-    - **Estimation:** Finding the coefficients that minimize the error.
-    - **Diagnostic Checking:** Testing if the residuals are 'White Noise'.
-    """)
-    
-    st.markdown("""
-    ### 2. Parameter Definitions
-    - **p (AR - Autoregressive):** Looks at the relationship between the current value and its own past values.
-    - **d (I - Integrated):** The number of differencing steps required to remove trends and seasonality.
-    - **q (MA - Moving Average):** Models the error term as a linear combination of error terms occurring contemporaneously and at various times in the past.
-    
-    ### 3. Model Fitness (AIC)
-    The **Akaike Information Criterion (AIC)** is used to compare models. It estimates the relative amount of information lost by a given model: the less information a model loses, the higher the quality of that model.
-    """)
+    with tab5:
+        st.header("📖 ARIMA Learning Center")
+        st.write("Built on the **Box-Jenkins Methodology**.")
+        
+        st.markdown("""
+        ### Understanding Terminology
+        - **p (Autoregressive):** Past values' influence.
+        - **d (Integrated):** Differencing needed for stationarity.
+        - **q (Moving Average):** Past errors' influence.
+        - **MAPE:** Measures forecast accuracy as a percentage. Below 5% is excellent.
+        - **AIC/BIC:** Lower values indicate better model balance between accuracy and complexity.
+        """)
