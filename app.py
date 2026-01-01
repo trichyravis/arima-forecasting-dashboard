@@ -71,7 +71,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HERO SECTION & SIDEBAR
+# HERO & SIDEBAR (RESTORED NAME PROFILE)
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"<div class='hero-title'><h1>ARIMA FORECASTING DASHBOARD</h1><p>Real-Time Box-Jenkins Time Series Forecasting for Indian Equities</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
 
@@ -83,28 +83,45 @@ with st.sidebar:
     st.markdown("### ⚙️ Model Configuration")
     transformation = st.radio("Price Transformation", ["Price Level", "Log Prices", "Log Returns", "Percentage Returns"], index=2)
     model_mode = st.radio("Model Selection", ["Manual ARIMA", "Auto ARIMA"], index=1)
+    
     p, d, q = 1, 1, 1
     if model_mode == "Manual ARIMA":
         c1, c2, c3 = st.columns(3)
         p, d, q = c1.slider("p", 0, 5, 1), c2.slider("d", 0, 2, 1), c3.slider("q", 0, 5, 1)
+    
     st.markdown("### 🔮 Forecast Settings")
     forecast_horizon = st.slider("Forecast Horizon (Periods)", 1, 60, 10)
     refresh_button = st.button("🔄 FETCH DATA & RUN MODEL")
+    
+    # Restored Name Profile and LinkedIn
     st.markdown("---")
-    st.markdown(f"<a href='https://www.linkedin.com/in/trichyravis' target='_blank' style='display: block; padding: 0.5rem; background: #0077b5; color: white; text-align: center; text-decoration: none; border-radius: 5px; font-weight: bold;'>🔗 LinkedIn Profile</a>", unsafe_allow_html=True)
+    st.markdown("### Prof. V. Ravichandran")
+    st.markdown("*28+ Years Finance Experience*")
+    st.markdown("*10+ Years Academic Excellence*")
+    st.markdown(f"""
+        <a href="https://www.linkedin.com/in/trichyravis" target="_blank" 
+           style="display: inline-block; padding: 0.5rem 1rem; background-color: #0077b5; 
+           color: white; text-decoration: none; border-radius: 5px; font-weight: bold; width: 100%; text-align: center;">
+            🔗 LinkedIn Profile
+        </a>
+    """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CURRENT PARAMETERS SUMMARY
+# MAIN DASHBOARD PARAMETERS
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selection Parameters")
 pm1, pm2, pm3, pm4 = st.columns(4)
-pm1.metric("Ticker", ticker)
+pm1.metric("Security", ticker)
+pm1.write(f"**Frequency:** {freq}")
 pm2.metric("History", f"{lookback}y")
+pm2.write(f"**Transformation:** {transformation}")
 pm3.metric("Mode", model_mode)
-pm4.metric("Horizon", f"{forecast_horizon}")
+if model_mode == "Manual ARIMA":
+    pm3.write(f"**Order (p,d,q):** ({p},{d},{q})")
+pm4.metric("Horizon", f"{forecast_horizon} periods")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROCESSING LOGIC
+# PROCESSING & TABS
 # ═══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Forecast", "🧪 Backtesting", "🔍 Diagnostics", "📊 Metrics", "📋 Export", "📚 Educational Hub"])
 results = None
@@ -118,75 +135,81 @@ if refresh_button:
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
             
-            # Backtesting Data Split
-            bt_len = min(20, len(raw_prices)//5)
-            bt_train_raw = raw_prices[:-bt_len]
-            bt_actual_raw = raw_prices[-bt_len:]
+            # Splitting for Backtest (hindcasting)
+            bt_size = min(30, len(raw_prices)//5)
+            bt_train_raw, bt_actual_raw = raw_prices[:-bt_size], raw_prices[-bt_size:]
             
-            def get_series(series, t):
+            def transform_data(series, t):
                 if t == "Log Returns": return np.log(series).diff().dropna()
                 if t == "Log Prices": return np.log(series)
                 if t == "Percentage Returns": return series.pct_change().dropna()
                 return series
 
-            train_series = get_series(raw_prices, transformation)
-            bt_train_series = get_series(bt_train_raw, transformation)
+            train_series = transform_data(raw_prices, transformation)
+            bt_train_series = transform_data(bt_train_raw, transformation)
 
             try:
-                # Main Model Fit
+                # Forecasting Model
                 if model_mode == "Auto ARIMA":
                     model = pm.auto_arima(train_series, seasonal=False)
                     fc = model.predict(n_periods=forecast_horizon)
                     order, aic, resid, fit_obj = model.order, model.aic(), model.resid(), model
                     
                     bt_model = pm.auto_arima(bt_train_series, seasonal=False)
-                    bt_fc = bt_model.predict(n_periods=bt_len)
+                    bt_fc = bt_model.predict(n_periods=bt_size)
                 else:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
                     fc = fit.forecast(steps=forecast_horizon)
                     order, aic, resid, fit_obj = (p, d, q), fit.aic, fit.resid, fit
                     
                     bt_fit = ARIMA(bt_train_series, order=(p, d, q)).fit()
-                    bt_fc = bt_fit.forecast(steps=bt_len)
+                    bt_fc = bt_fit.forecast(steps=bt_size)
 
-                # Inversion logic
-                def invert_fc(fc_vals, last_p, t):
+                def invert(fc_vals, last_p, t):
                     if t == "Log Returns": return last_p * np.exp(np.cumsum(fc_vals))
                     if t == "Log Prices": return np.exp(fc_vals)
                     if t == "Percentage Returns": return last_p * (1 + np.cumsum(fc_vals))
                     return fc_vals
 
-                inv_fc = invert_fc(fc, raw_prices.iloc[-1], transformation)
-                inv_bt = invert_fc(bt_fc, bt_train_raw.iloc[-1], transformation)
+                inv_fc = invert(fc, raw_prices.iloc[-1], transformation)
+                inv_bt = invert(bt_fc, bt_train_raw.iloc[-1], transformation)
                 
                 f_dates = pd.date_range(raw_prices.index[-1], periods=forecast_horizon + 1, freq=res_map[freq])[1:]
                 fc_df = pd.DataFrame({"Forecasted Price": np.array(inv_fc).flatten()}, index=f_dates)
                 
-                # Backtest Comparison DF
                 bt_comp = pd.DataFrame({
                     "Actual Price": bt_actual_raw.values,
                     "Predicted Price": np.array(inv_bt).flatten()
                 }, index=bt_actual_raw.index)
                 bt_comp["Variance (%)"] = ((bt_comp["Predicted Price"] - bt_comp["Actual Price"]) / bt_comp["Actual Price"]) * 100
                 
-                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "train_series": train_series}
-            except Exception as e: st.error(f"Error: {e}")
+                # Metrics
+                fitted = fit_obj.fittedvalues() if hasattr(fit_obj, 'fittedvalues') and callable(fit_obj.fittedvalues) else fit_obj.fittedvalues
+                rmse = np.sqrt(np.mean((fitted - train_series)**2))
+                mask = train_series != 0
+                mape = np.mean(np.abs((train_series[mask] - fitted[mask]) / train_series[mask])) * 100 if np.any(mask) else 0
 
+                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, 
+                           "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
+            except Exception as e: st.error(f"Computation Error: {e}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TABS DISPLAY
+# ═══════════════════════════════════════════════════════════════════════════════
 if results:
     with tab1:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical", line=dict(color=DARK_BLUE)))
         fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
-    
+
     with tab2:
-        st.subheader("🧪 Backtesting Results: Forecast vs. Actual")
+        st.subheader("🧪 Backtesting: Forecast vs. Actual")
         fig_bt = go.Figure()
         fig_bt.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Actual", line=dict(color=DARK_BLUE)))
-        fig_bt.add_trace(go.Scatter(x=results["bt_comp"].index, y=results["bt_comp"]["Predicted Price"], name="Model Prediction", line=dict(color='red', dash='dash')))
+        fig_bt.add_trace(go.Scatter(x=results["bt_comp"].index, y=results["bt_comp"]["Predicted Price"], name="Backtest Prediction", line=dict(color='red', dash='dash')))
         st.plotly_chart(fig_bt, use_container_width=True)
-        st.write("**Detailed Variance Analysis**")
-        st.dataframe(results["bt_comp"].style.format("{:.2f}"))
+        st.dataframe(results["bt_comp"].style.format("{:.2f}"), use_container_width=True)
 
     with tab3:
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -197,14 +220,12 @@ if results:
         plt.tight_layout(); st.pyplot(fig_diag)
 
     with tab4:
-        st.subheader("📊 Model Performance Metrics")
+        st.subheader("📊 Comprehensive Model Metrics")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Order", str(results["order"]))
-        c1.metric("AIC", f"{results['aic']:.2f}")
-        
-        fitted = results["fit_obj"].fittedvalues() if hasattr(results["fit_obj"], 'fittedvalues') and callable(results["fit_obj"].fittedvalues) else results["fit_obj"].fittedvalues
-        rmse = np.sqrt(np.mean((fitted - results["train_series"])**2))
-        c2.metric("RMSE", f"{rmse:.4f}")
+        c1.metric("Optimal Order", str(results["order"]))
+        c1.metric("AIC Score", f"{results['aic']:.2f}")
+        c2.metric("RMSE", f"{results['rmse']:.4f}")
+        c2.metric("MAPE (Training)", f"{results['mape']:.2f}%")
         
         lb_p = acorr_ljungbox(results["resid"], lags=[10], return_df=True)['lb_pvalue'].values[0]
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
@@ -213,14 +234,17 @@ if results:
         st.dataframe(results["fc_df"].style.format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer: results["fc_df"].to_excel(writer, sheet_name='Forecast')
-        st.download_button("📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
+        st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
 with tab6:
     st.header("📖 ARIMA Learning Center")
-    
-    st.markdown("""
-    ### Stages of Box-Jenkins Methodology
-    1. **Identification**: Transform data to be stationary ($d$).
-    2. **Estimation**: Find best $p$ and $q$ parameters.
-    3. **Diagnostics**: Ensure residuals are White Noise (ACF & Q-Q Plots).
+    st.write("This dashboard utilizes the **Box-Jenkins Methodology**, which is a systematic process of identifying, fitting, and checking time series models.")
+        st.markdown("""
+    ### 🏔️ Stages of the Lifecycle
+    1. **Identification**: Transform the data (differencing/logs) to achieve **Stationarity**.
+    2. **Estimation**: Determine the optimal **p** (AutoRegressive) and **q** (Moving Average) parameters.
+    3. **Diagnostics**: Validate that the residuals resemble **White Noise** (using ACF plots).
     """)
+
+st.markdown("---")
+st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
