@@ -106,7 +106,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CURRENT PARAMETERS SUMMARY
+# PARAMETERS SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Current Selection Parameters")
 pm1, pm2, pm3, pm4 = st.columns(4)
@@ -115,8 +115,7 @@ pm1.write(f"**Freq:** {freq}")
 pm2.metric("History", f"{lookback}y")
 pm2.write(f"**Trans:** {transformation}")
 pm3.metric("Mode", model_mode)
-if model_mode == "Manual ARIMA":
-    pm3.write(f"**Order:** ({p},{d},{q})")
+if model_mode == "Manual ARIMA": pm3.write(f"**Order:** ({p},{d},{q})")
 pm4.metric("Horizon", f"{forecast_horizon}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,6 +132,10 @@ if refresh_button:
             raw_prices = raw_prices.dropna()
             res_map = {"Daily": "B", "Weekly": "W", "Monthly": "M"}
             raw_prices = raw_prices.resample(res_map[freq]).last().ffill()
+            
+            # Volatility Analysis (Std Dev of Returns)
+            returns = raw_prices.pct_change().dropna()
+            volatility = returns.std() * np.sqrt(252 if freq == "Daily" else 52 if freq == "Weekly" else 12)
             
             # Backtest Split
             bt_size = min(30, len(raw_prices)//5)
@@ -159,13 +162,12 @@ if refresh_button:
                     fit = ARIMA(train_series, order=(p, d, q)).fit()
                     fc_res = fit.get_forecast(steps=forecast_horizon)
                     fc = fc_res.predicted_mean
-                    conf_int = fc_res.conf_int(alpha=0.05) # 95% CI
+                    conf_int = fc_res.conf_int(alpha=0.05)
                     order, aic, resid, fit_obj = (p, d, q), fit.aic, fit.resid, fit
                     
                     bt_fit = ARIMA(bt_train_series, order=(p, d, q)).fit()
                     bt_fc = bt_fit.forecast(steps=bt_size)
 
-                # Inversion Helper
                 def invert(fc_vals, last_p, t):
                     if t == "Log Returns": return last_p * np.exp(np.cumsum(fc_vals))
                     if t == "Log Prices": return np.exp(fc_vals)
@@ -184,15 +186,16 @@ if refresh_button:
                     "Upper Bound (95%)": np.array(inv_upper).flatten()
                 }, index=f_dates)
                 
-                bt_comp = pd.DataFrame({"Actual Price": bt_actual_raw.values, "Predicted Price": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
-                bt_comp["Variance (%)"] = ((bt_comp["Predicted Price"] - bt_comp["Actual Price"]) / bt_comp["Actual Price"]) * 100
+                bt_comp = pd.DataFrame({"Actual": bt_actual_raw.values, "Predicted": np.array(inv_bt).flatten()}, index=bt_actual_raw.index)
+                bt_comp["Variance (%)"] = ((bt_comp["Predicted"] - bt_comp["Actual"]) / bt_comp["Actual"]) * 100
                 
                 fitted = fit_obj.fittedvalues() if hasattr(fit_obj, 'fittedvalues') and callable(fit_obj.fittedvalues) else fit_obj.fittedvalues
                 rmse = np.sqrt(np.mean((fitted - train_series)**2))
                 mask = train_series != 0
                 mape = np.mean(np.abs((train_series[mask] - fitted[mask]) / train_series[mask])) * 100 if np.any(mask) else 0
 
-                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "train_series": train_series}
+                results = {"raw": raw_prices, "fc_df": fc_df, "bt_comp": bt_comp, "order": order, "aic": aic, 
+                           "resid": resid, "fit_obj": fit_obj, "rmse": rmse, "mape": mape, "vol": volatility, "train_series": train_series}
             except Exception as e: st.error(f"Computation Error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -201,26 +204,15 @@ if refresh_button:
 if results:
     with tab1:
         fig = go.Figure()
-        # Historical
         fig.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Historical", line=dict(color=DARK_BLUE)))
-        # Confidence Interval Shading
         fig.add_trace(go.Scatter(
             x=results["fc_df"].index.tolist() + results["fc_df"].index.tolist()[::-1],
             y=results["fc_df"]["Upper Bound (95%)"].tolist() + results["fc_df"]["Lower Bound (95%)"].tolist()[::-1],
             fill='toself', fillcolor='rgba(255,165,0,0.2)', line=dict(color='rgba(255,255,255,0)'),
-            hoverinfo="skip", showlegend=True, name="95% Confidence Interval"
+            name="95% Confidence Band"
         ))
-        # Forecast Line
-        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="ARIMA Forecast", line=dict(color='orange', width=3)))
+        fig.add_trace(go.Scatter(x=results["fc_df"].index, y=results["fc_df"]["Forecasted Price"], name="Forecast", line=dict(color='orange', width=3)))
         st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        st.subheader("🧪 Backtesting: Forecast vs. Actual")
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=results["raw"].index, y=results["raw"], name="Actual", line=dict(color=DARK_BLUE)))
-        fig_bt.add_trace(go.Scatter(x=results["bt_comp"].index, y=results["bt_comp"]["Predicted Price"], name="Backtest Prediction", line=dict(color='red', dash='dash')))
-        st.plotly_chart(fig_bt, use_container_width=True)
-        st.dataframe(results["bt_comp"].style.format("{:.2f}"), use_container_width=True)
 
     with tab3:
         fig_diag, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -231,36 +223,32 @@ if results:
         plt.tight_layout(); st.pyplot(fig_diag)
 
     with tab4:
-        st.subheader("📊 Comprehensive Model Metrics")
+        st.subheader("📊 Model Metrics & Risk Profile")
         c1, c2, c3 = st.columns(3)
         c1.metric("Optimal Order", str(results["order"]))
         c1.metric("AIC Score", f"{results['aic']:.2f}")
         c2.metric("RMSE", f"{results['rmse']:.4f}")
-        c2.metric("MAPE (Training)", f"{results['mape']:.2f}%")
+        c2.metric("MAPE Accuracy", f"{results['mape']:.2f}%")
+        c3.metric("Annual Volatility", f"{results['vol']*100:.2f}%")
         lb_p = acorr_ljungbox(results["resid"], lags=[10], return_df=True)['lb_pvalue'].values[0]
         c3.metric("Ljung-Box p-val", f"{lb_p:.3f}")
 
     with tab5:
-        st.subheader("📋 Dynamic Forecast Export Table")
-        # Enhancing Table appearance with Heatmap/Background gradient
-        st.dataframe(
-            results["fc_df"].style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}"),
-            use_container_width=True
-        )
+        st.subheader("📋 Heatmapped Export Table")
+        st.dataframe(results["fc_df"].style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}"), use_container_width=True)
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer: results["fc_df"].to_excel(writer, sheet_name='Forecast')
-        st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
+        st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name=f"{ticker}_forecast.xlsx")
 
 with tab6:
     st.header("📖 ARIMA Learning Center")
     
     st.markdown("""
-    ### 🏔️ Stages of the Lifecycle
-    1. **Identification**: Transform the data (differencing/logs) to achieve **Stationarity**.
-    2. **Estimation**: Determine the optimal **p** (AutoRegressive) and **q** (Moving Average) parameters.
-    3. **Diagnostics**: Validate that the residuals resemble **White Noise**.
+    ### 🏔️ Understanding Risk & Uncertainty
+    * **Annual Volatility**: Represents the standard deviation of returns. A higher volatility stock will naturally have wider **Confidence Bands**.
+    * **95% Confidence Band**: The shaded area on the forecast chart. Statistically, there is a 95% chance the actual price will fall within this range if market conditions remain consistent.
     """)
-    st.info("💡 **Confidence Intervals:** Represent the range where the actual price is likely to fall with 95% probability based on historical volatility.")
+    st.info("💡 **Diagnostic Check:** If the Ljung-Box p-value is > 0.05, the model's residuals are 'White Noise', signifying a high-quality statistical fit.")
 
 st.markdown("---")
 st.markdown(f"<p style='text-align: center; color: gray;'>{BRAND_NAME} | Built for Educational Excellence</p>", unsafe_allow_html=True)
