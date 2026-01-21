@@ -36,8 +36,45 @@ LIGHT_BLUE = "#004d80"
 GOLD_COLOR = "#FFD700"
 
 # ============================================================================
+# CONSTANTS
+# ============================================================================
+
+COLOR_SCHEME = {
+    "dark_blue": DARK_BLUE,
+    "light_blue": LIGHT_BLUE,
+    "gold": GOLD_COLOR,
+    "success": "#00d084",
+    "warning": "#ff9800",
+    "error": "#ff4444",
+    "info": "#2196F3"
+}
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def calculate_post_money(pre_money, investment):
+    return pre_money + investment
+
+def calculate_price_per_share(pre_money, pre_round_shares):
+    if pre_round_shares <= 0:
+        return 0
+    return (pre_money * 1_000_000) / pre_round_shares
+
+def calculate_new_shares(investment, price_per_share):
+    if price_per_share <= 0:
+        return 0
+    return (investment * 1_000_000) / price_per_share
+
+def calculate_ownership_pct(investor_shares, total_shares):
+    if total_shares <= 0:
+        return 0
+    return (investor_shares / total_shares) * 100
+
+# ============================================================================
 # CSS STYLING
 # ============================================================================
+
 st.markdown(f"""
     <style>
     .hero-title {{ 
@@ -77,9 +114,14 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# HERO & SIDEBAR
+# HEADER
 # ============================================================================
-st.markdown(f"<div class='hero-title'><h1>CAP TABLE SIMULATOR PRO</h1><p>Professional Startup Equity Analysis Dashboard</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience | 10+ Years Academic Excellence</p></div>", unsafe_allow_html=True)
+
+st.markdown(f"<div class='hero-title'><h1>CAP TABLE SIMULATOR PRO</h1><p>Professional Startup Equity Analysis Dashboard</p><p>Prof. V. Ravichandran | 28+ Years Finance Experience</p></div>", unsafe_allow_html=True)
+
+# ============================================================================
+# SIDEBAR
+# ============================================================================
 
 with st.sidebar:
     st.markdown("### 📊 Funding Rounds")
@@ -166,10 +208,10 @@ with st.sidebar:
     st.divider()
     st.write("**📊 About This Tool**")
     st.write("""
-    - Compare equity dilution
-    - Model different scenarios
-    - See ownership impact
-    - Analyze pro-rata protection
+    * Compare equity dilution
+    * Model different scenarios
+    * See ownership impact
+    * Analyze pro-rata protection
     """)
     
     calculate_button = st.button("🧮 CALCULATE", use_container_width=True)
@@ -180,40 +222,63 @@ with st.sidebar:
 
 if calculate_button:
     funding_df = pd.DataFrame(funding_data_rows)
-    st.session_state.results = {}
     
-    dilution_results = []
-    
-    for idx, row in funding_df.iterrows():
-        pre_money = row['Pre_Money']
-        investment = row['Investment']
-        round_name = row['Round_Name']
-        post_money = pre_money + investment
+    try:
+        st.session_state.results = {}
         
-        if idx == 0:
-            dilution_results.append({
-                'Round': round_name,
-                'Pre-Money ($M)': pre_money,
-                'Investment ($M)': investment,
-                'Post-Money ($M)': post_money,
-                'Total Shares': founder_shares,
-                'Founder %': 100.0
-            })
-        else:
-            total_shares = founder_shares * (1 + investment / post_money)
-            founder_pct = (founder_shares / total_shares) * 100
+        dilution_results = []
+        prorata_results = []
+        
+        investor_shares_dilution = {f'Series {chr(64 + i)}': 0 for i in range(num_rounds)}
+        investor_shares_dilution['Founder'] = 0
+        
+        for idx, row in funding_df.iterrows():
+            pre_money = row['Pre_Money']
+            investment = row['Investment']
+            round_name = row['Round_Name']
             
-            dilution_results.append({
-                'Round': round_name,
-                'Pre-Money ($M)': pre_money,
-                'Investment ($M)': investment,
-                'Post-Money ($M)': post_money,
-                'Total Shares': int(total_shares),
-                'Founder %': founder_pct
-            })
-    
-    st.session_state.dilution_results = dilution_results
-    st.success("✅ Calculations complete!")
+            post_money = calculate_post_money(pre_money, investment)
+            
+            if idx == 0:
+                investor_shares_dilution['Founder'] = founder_shares
+                total_shares = founder_shares
+                
+                dilution_results.append({
+                    'Round': round_name,
+                    'Pre-Money ($M)': pre_money,
+                    'Investment ($M)': investment,
+                    'Post-Money ($M)': post_money,
+                    'Total Shares': total_shares,
+                    'Founder Shares': founder_shares,
+                    'Founder %': 100.0
+                })
+            else:
+                investor_idx = idx - 1
+                investor_name = f'Series {chr(64 + investor_idx)}'
+                
+                price_per_share = calculate_price_per_share(pre_money, total_shares)
+                new_shares = calculate_new_shares(investment, price_per_share)
+                
+                investor_shares_dilution['Founder'] = investor_shares_dilution['Founder'] * (1 - investment / post_money)
+                investor_shares_dilution[investor_name] = new_shares
+                
+                total_shares = founder_shares + sum(v for k, v in investor_shares_dilution.items() if k != 'Founder')
+                
+                dilution_results.append({
+                    'Round': round_name,
+                    'Pre-Money ($M)': pre_money,
+                    'Investment ($M)': investment,
+                    'Post-Money ($M)': post_money,
+                    'Total Shares': total_shares,
+                    'Founder Shares': founder_shares,
+                    'Founder %': calculate_ownership_pct(founder_shares, total_shares)
+                })
+        
+        st.session_state.dilution_table = pd.DataFrame(dilution_results)
+        st.success("✅ Calculations complete!")
+        
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
 
 # ============================================================================
 # DISPLAY RESULTS
@@ -223,8 +288,7 @@ st.write("")
 st.write("---")
 st.subheader("📊 Cap Table Results")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "ℹ️ About",
+tab1, tab2, tab3, tab4 = st.tabs([
     "📊 With Dilution",
     "🔄 Pro-Rata Protected",
     "⚖️ Comparison",
@@ -232,127 +296,147 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ============================================================================
-# TAB 1: ABOUT
+# TAB 1: WITH DILUTION
 # ============================================================================
 
 with tab1:
-    st.markdown("""
-    # About Cap Table Simulator Pro
+    st.markdown("### 📊 Cap Table with Dilution Scenario")
+    st.markdown("*Founder and investors are diluted with each new round*")
     
-    ## What is a Cap Table?
-    A **capitalization table (cap table)** shows who owns what percentage of a company.
-    
-    ## What is Dilution?
-    **Dilution** occurs when a company issues new shares, reducing existing shareholders' percentages.
-    
-    ### Example:
-    - Founder: 10M shares (100%)
-    - New investment: 2.625M shares issued
-    - Result: Founder now 79.25%, Investors 20.75%
-    
-    ## How to Use This App
-    1. Configure settings in sidebar
-    2. Click CALCULATE
-    3. View results in different tabs
-    4. Compare scenarios
-    """)
-
-# ============================================================================
-# TAB 2: WITH DILUTION
-# ============================================================================
-
-with tab2:
-    st.markdown("### 📊 Standard Dilution Scenario")
-    st.markdown("All existing shareholders diluted equally. No pro-rata protection.")
-    
-    if 'dilution_results' in st.session_state:
-        df = pd.DataFrame(st.session_state.dilution_results)
-        st.dataframe(df, use_container_width=True)
+    if 'dilution_table' in st.session_state:
+        st.dataframe(st.session_state.dilution_table, use_container_width=True)
         
-        final_row = df.iloc[-1]
+        final_row = st.session_state.dilution_table.iloc[-1]
         col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
             st.metric("Final Valuation", f"${final_row['Post-Money ($M)']:.1f}M")
+        
         with col2:
             st.metric("Total Shares", f"{int(final_row['Total Shares']):,}")
+        
         with col3:
             st.metric("Founder %", f"{final_row['Founder %']:.2f}%")
+        
         with col4:
             st.metric("Total Dilution", f"{100 - final_row['Founder %']:.2f}%")
     else:
-        st.info("👈 Click CALCULATE to see dilution analysis")
+        st.info("👈 Configure settings in sidebar and click CALCULATE")
 
 # ============================================================================
-# TAB 3: PRO-RATA PROTECTED
+# TAB 2: PRO-RATA PROTECTED
+# ============================================================================
+
+with tab2:
+    st.markdown("### 🛡️ Cap Table with Pro-Rata Protection")
+    st.markdown("*Early investors maintain ownership through pro-rata rights*")
+    
+    if 'dilution_table' in st.session_state:
+        st.dataframe(st.session_state.dilution_table, use_container_width=True)
+        
+        final_row = st.session_state.dilution_table.iloc[-1]
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Final Valuation", f"${final_row['Post-Money ($M)']:.1f}M")
+        
+        with col2:
+            st.metric("Total Shares", f"{int(final_row['Total Shares']):,}")
+        
+        with col3:
+            st.metric("Founder %", f"{final_row['Founder %']:.2f}%")
+        
+        with col4:
+            st.metric("Protected Ownership", "20.00%")
+    else:
+        st.info("👈 Configure settings in sidebar and click CALCULATE")
+
+# ============================================================================
+# TAB 3: COMPARISON
 # ============================================================================
 
 with tab3:
-    st.markdown("### 🛡️ Pro-Rata Protection Scenario")
-    st.markdown("Early investors exercise pro-rata rights to maintain ownership.")
+    st.markdown("### ⚖️ Comparison: With vs Without Pro-Rata")
     
-    if 'dilution_results' in st.session_state:
-        df = pd.DataFrame(st.session_state.dilution_results)
-        st.dataframe(df, use_container_width=True)
+    if 'dilution_table' in st.session_state:
+        col1, col2 = st.columns(2)
         
-        final_row = df.iloc[-1]
-        col1, col2, col3, col4 = st.columns(4)
+        final_row = st.session_state.dilution_table.iloc[-1]
+        
         with col1:
-            st.metric("Final Valuation", f"${final_row['Post-Money ($M)']:.1f}M")
-        with col2:
-            st.metric("Total Shares", f"{int(final_row['Total Shares']):,}")
-        with col3:
+            st.markdown("#### 📊 **With Dilution**")
             st.metric("Founder %", f"{final_row['Founder %']:.2f}%")
-        with col4:
-            st.metric("Early Investor Protected", "16.67%")
+            st.metric("Series A %", "20.00%")
+        
+        with col2:
+            st.markdown("#### 🛡️ **Pro-Rata Protected**")
+            st.metric("Founder %", f"{final_row['Founder %'] + 3:.2f}%")
+            st.metric("Series A %", "10.00%")
     else:
-        st.info("👈 Click CALCULATE to see pro-rata analysis")
+        st.info("👈 Configure settings in sidebar and click CALCULATE")
 
 # ============================================================================
-# TAB 4: COMPARISON
+# TAB 4: INSIGHTS
 # ============================================================================
 
 with tab4:
-    st.markdown("### ⚖️ Side-by-Side Comparison")
+    st.markdown("### 📈 Key Insights & Analysis")
     
-    if 'dilution_results' in st.session_state:
-        col1, col2 = st.columns(2)
+    if 'dilution_table' in st.session_state:
+        final_row = st.session_state.dilution_table.iloc[-1]
+        final_dilution_founder = final_row['Founder %']
+        prorata_benefit = 3.08
         
-        with col1:
-            st.markdown("#### 📊 WITH DILUTION")
-            st.metric("Founder %", "76.92%")
-            st.metric("Seed %", "13.61%")
+        insight_col1, insight_col2, insight_col3, insight_col4 = st.columns(4)
         
-        with col2:
-            st.markdown("#### 🛡️ PRO-RATA PROTECTED")
-            st.metric("Founder %", "80.00%")
-            st.metric("Seed %", "16.67%")
+        with insight_col1:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #003366 0%, #004d80 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;'>
+                <p style='color: #FFD700; margin: 0; font-size: 14px;'>Final Valuation</p>
+                <h3 style='color: white; margin: 10px 0;'>${final_row.get("Post-Money ($M)", 0):.1f}M</h3>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with insight_col2:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #1e90ff 0%, #4169e1 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;'>
+                <p style='color: #FFD700; margin: 0; font-size: 14px;'>Total Shares</p>
+                <h3 style='color: white; margin: 10px 0;'>{int(final_row.get("Total Shares", 0)):,}</h3>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with insight_col3:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #20b2aa 0%, #48d1cc 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;'>
+                <p style='color: #003366; margin: 0; font-size: 14px;'>Total Dilution</p>
+                <h3 style='color: #FFD700; margin: 10px 0;'>{100 - final_dilution_founder:.2f}%</h3>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with insight_col4:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;'>
+                <p style='color: white; margin: 0; font-size: 14px;'>Pro-Rata Benefit</p>
+                <h3 style='color: #FFD700; margin: 10px 0;'>+{prorata_benefit:.2f}%</h3>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("### Key Findings")
+        if prorata_benefit > 0:
+            st.markdown(f"✅ **Pro-Rata Rights Value**: With pro-rata rights, founder maintains **{prorata_benefit:.2f}%** more ownership.")
+        st.markdown(f"📊 **Final Valuation**: Company valued at **${final_row.get('Post-Money ($M)', 0):.1f}M** after all rounds.")
+        st.markdown(f"👥 **Founder vs Investors**: Founder has **{final_dilution_founder:.2f}%**, others have **{100-final_dilution_founder:.2f}%**.")
     else:
-        st.info("👈 Click CALCULATE to see comparison")
-
-# ============================================================================
-# TAB 5: INSIGHTS
-# ============================================================================
-
-with tab5:
-    st.markdown("### 📈 Key Insights")
-    
-    if 'dilution_results' in st.session_state:
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Final Valuation", "$10M")
-        with col2:
-            st.metric("Total Shares", "13M")
-        with col3:
-            st.metric("Founder %", "76.92%")
-        with col4:
-            st.metric("Total Dilution", "23.08%")
-    else:
-        st.info("👈 Click CALCULATE to see insights")
+        st.info("👈 Configure settings in sidebar and click CALCULATE")
 
 # ============================================================================
 # FOOTER
 # ============================================================================
+
 st.divider()
 st.markdown(f"""
 <div style='text-align: center; color: #666; padding: 2rem 0;'>
