@@ -44,64 +44,96 @@ BRAND_NAME = "The Mountain Path - World of Finance"
 # ============================================================================
 st.markdown(f"""
     <style>
+    /* Hero Title - Gradient Background */
     .hero-title {{ 
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%); 
-        padding: 2rem; 
+        padding: 2.5rem; 
         border-radius: 20px; 
-        margin-bottom: 2rem; 
-        box-shadow: 0 12px 30px rgba(0, 51, 102, 0.4); 
-        border: 4px solid {DARK_BLUE}; 
+        margin: 1rem 0; 
+        box-shadow: 0 8px 20px rgba(0, 51, 102, 0.3); 
+        border: 3px solid {DARK_BLUE}; 
         color: white; 
         text-align: center; 
     }}
     
-    .hero-title h1 {{ margin: 0.5rem 0; font-size: 2.5rem; }}
-    .hero-title p {{ margin: 0.3rem 0; font-size: 1rem; }}
+    .hero-title h1 {{ 
+        margin: 0.5rem 0; 
+        font-size: 2.5rem; 
+        font-weight: 900;
+        letter-spacing: 2px;
+    }}
     
+    .hero-title p {{ 
+        margin: 0.3rem 0; 
+        font-size: 1rem; 
+        font-weight: 500;
+    }}
+    
+    /* Sidebar Styling */
     [data-testid="stSidebar"] {{ 
         background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important; 
     }}
     
+    [data-testid="stSidebar"] > div > div:first-child {{ 
+        background: linear-gradient(135deg, {DARK_BLUE} 0%, {LIGHT_BLUE} 100%) !important;
+    }}
+    
     [data-testid="stSidebar"] h1,
     [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] div[role="radiogroup"] p, 
-    [data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {{ 
-        color: white !important; 
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] h6,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] *{{
+        color: {GOLD_COLOR} !important; 
         font-weight: 600 !important; 
     }}
     
-    [data-testid="stSidebar"] .st-ae div {{ 
-        color: white !important; 
-    }}
-    
-    [data-testid="stSidebar"] .st-at {{ 
-        color: white !important; 
-    }}
-    
-    .stButton>button {{ 
-        background-color: {GOLD_COLOR} !important; 
+    /* Button Styling */
+    .stButton > button {{ 
+        background: linear-gradient(135deg, {GOLD_COLOR} 0%, #FFC700 100%) !important; 
         color: {DARK_BLUE} !important; 
-        font-weight: bold !important; 
+        font-weight: 700 !important; 
         border-radius: 10px !important; 
         width: 100%; 
-        border: none !important;
-        box-shadow: 0 4px 10px rgba(255, 215, 0, 0.3) !important;
+        border: 2px solid {DARK_BLUE} !important;
+        box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3) !important;
+        padding: 12px 24px !important;
+        transition: all 0.3s ease !important;
     }}
     
-    .stButton>button:hover {{
-        background-color: #FFC700 !important;
-        box-shadow: 0 6px 15px rgba(255, 215, 0, 0.5) !important;
+    .stButton > button:hover {{
+        background: linear-gradient(135deg, #FFC700 0%, {GOLD_COLOR} 100%) !important;
+        box-shadow: 0 6px 20px rgba(255, 215, 0, 0.5) !important;
+        transform: translateY(-2px) !important;
     }}
     
+    /* Footer */
     .footer {{
         text-align: center; 
-        color: gray; 
-        padding: 2rem 0;
+        color: #666; 
+        padding: 2rem 1rem;
         border-top: 2px solid {DARK_BLUE};
         margin-top: 3rem;
+        font-size: 13px;
+    }}
+    
+    .footer p {{
+        margin: 0.5rem 0;
+    }}
+    
+    /* Tab Styling */
+    [data-testid="stTabs"] button {{
+        font-weight: 600;
+    }}
+    
+    [data-testid="stTabs"] button[aria-selected="true"] {{
+        color: {DARK_BLUE} !important;
+        border-bottom: 3px solid {GOLD_COLOR} !important;
     }}
     </style>
 """, unsafe_allow_html=True)
