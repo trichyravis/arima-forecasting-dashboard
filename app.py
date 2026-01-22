@@ -1,7 +1,7 @@
 
 """
 ═══════════════════════════════════════════════════════════════════════════════
-ARIMA FORECASTING DASHBOARD - MAIN APPLICATION
+ARIMA FORECASTING DASHBOARD - MAIN APPLICATION (ENHANCED WITH IMPLEMENTATION)
 The Mountain Path - World of Finance
 Real-Time Box-Jenkins Time Series Forecasting for Indian Equities
 
@@ -14,10 +14,15 @@ Prof. V. Ravichandran
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import warnings
+warnings.filterwarnings('ignore')
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# IMPORTS FROM CONFIG
+# IMPORTS FROM CONFIG & MODULES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from src.config import (
@@ -35,6 +40,9 @@ from src.config import (
     # Other
     DEFAULT_TRAIN_PCT, DEFAULT_TRANSFORMATION
 )
+
+from src.data.loader import DataLoader
+from src.models.arima import ARIMAModel
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIGURATION
@@ -235,6 +243,20 @@ st.markdown(f"""
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SESSION STATE INITIALIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+    st.session_state.model_fitted = False
+    st.session_state.forecast_generated = False
+    st.session_state.data = None
+    st.session_state.series = None
+    st.session_state.arima_model = None
+    st.session_state.forecast_df = None
+    st.session_state.model_metrics = None
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR - DATA SELECTION & MODEL CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -365,6 +387,84 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DATA FETCHING & MODEL EXECUTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if refresh_button:
+    with st.spinner(f"⏳ Fetching data for {ticker}..."):
+        try:
+            # Initialize data loader
+            loader = DataLoader()
+            
+            # Calculate date range
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=lookback_years*365)).strftime("%Y-%m-%d")
+            
+            # Map frequency
+            interval_map = {"Daily": "1d", "Weekly": "1wk", "Monthly": "1mo"}
+            interval = interval_map.get(frequency, "1d")
+            
+            # Fetch data
+            st.session_state.data = loader.fetch_from_yfinance(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval
+            )
+            
+            # Validate data
+            is_valid, errors = loader.validate_data(st.session_state.data)
+            
+            if not is_valid:
+                st.error(f"❌ Data validation failed: {errors}")
+            else:
+                st.session_state.series = loader.prepare_series(st.session_state.data, column="Close")
+                st.session_state.data_loaded = True
+                st.success(f"✅ Data fetched: {len(st.session_state.series)} observations")
+        
+        except Exception as e:
+            st.error(f"❌ Error fetching data: {str(e)}")
+            st.session_state.data_loaded = False
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODEL FITTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if st.session_state.data_loaded and refresh_button:
+    with st.spinner("⏳ Fitting ARIMA model..."):
+        try:
+            # Create ARIMA model
+            st.session_state.arima_model = ARIMAModel(st.session_state.series, name=ticker)
+            
+            # Fit model
+            if model_mode == "Auto ARIMA":
+                order, aic, bic = st.session_state.arima_model.auto_select_parameters(
+                    max_p=5, max_d=2, max_q=5
+                )
+                st.session_state.arima_model.fit(order)
+                st.success(f"✅ Auto ARIMA selected: ARIMA{order}")
+            else:
+                st.session_state.arima_model.fit((p, d, q))
+                st.success(f"✅ Manual ARIMA fitted: ARIMA({p},{d},{q})")
+            
+            st.session_state.model_fitted = True
+            
+            # Generate forecast
+            alpha_map = {"80%": 0.20, "90%": 0.10, "95%": 0.05, "99%": 0.01}
+            alpha = alpha_map.get(confidence_level, 0.05)
+            
+            st.session_state.forecast_df = st.session_state.arima_model.forecast(
+                steps=forecast_horizon,
+                alpha=alpha
+            )
+            st.session_state.forecast_generated = True
+            st.success(f"✅ Forecast generated for {forecast_horizon} days")
+        
+        except Exception as e:
+            st.error(f"❌ Error fitting model: {str(e)}")
+            st.session_state.model_fitted = False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN CONTENT - METRICS & ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -431,16 +531,95 @@ with tab1:
     - **Blue Line**: Historical stock prices
     - **Green Line**: Model fitted values (in-sample)
     - **Orange Line**: Forecasted values (out-of-sample)
-    - **Shaded Area**: 95% confidence interval bands
+    - **Shaded Area**: Confidence interval bands
     
     **Interactive:** Hover for values, zoom, pan, or download as PNG
     """)
     
-    if refresh_button:
-        st.success(f"✓ Data fetched for {ticker}")
-        st.info("📊 Placeholder: Interactive Plotly chart will appear here in Week 2")
+    if st.session_state.data_loaded and st.session_state.forecast_generated:
+        try:
+            # Create Plotly figure
+            fig = go.Figure()
+            
+            # Historical data
+            fig.add_trace(go.Scatter(
+                x=st.session_state.series.index,
+                y=st.session_state.series.values,
+                mode='lines',
+                name='Historical Price',
+                line=dict(color=DARK_BLUE, width=2),
+                hovertemplate='<b>Date</b>: %{x|%Y-%m-%d}<br><b>Price</b>: ₹%{y:.2f}<extra></extra>'
+            ))
+            
+            # Fitted values
+            if st.session_state.arima_model.fitted_model is not None:
+                fitted_values = st.session_state.arima_model.fitted_model.fittedvalues
+                fig.add_trace(go.Scatter(
+                    x=fitted_values.index,
+                    y=fitted_values.values,
+                    mode='lines',
+                    name='Fitted Values',
+                    line=dict(color='green', width=2, dash='dash'),
+                    hovertemplate='<b>Date</b>: %{x|%Y-%m-%d}<br><b>Fitted</b>: ₹%{y:.2f}<extra></extra>'
+                ))
+            
+            # Forecast
+            forecast_data = st.session_state.forecast_df
+            fig.add_trace(go.Scatter(
+                x=forecast_data.index,
+                y=forecast_data['forecast'].values,
+                mode='lines',
+                name='Forecast',
+                line=dict(color=GOLD_COLOR, width=2),
+                hovertemplate='<b>Date</b>: %{x|%Y-%m-%d}<br><b>Forecast</b>: ₹%{y:.2f}<extra></extra>'
+            ))
+            
+            # Confidence interval (upper)
+            fig.add_trace(go.Scatter(
+                x=forecast_data.index,
+                y=forecast_data['upper_ci'].values,
+                fill=None,
+                mode='lines',
+                line_color='rgba(0,0,0,0)',
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+            
+            # Confidence interval (lower & fill)
+            fig.add_trace(go.Scatter(
+                x=forecast_data.index,
+                y=forecast_data['lower_ci'].values,
+                fill='tonexty',
+                mode='lines',
+                line_color='rgba(0,0,0,0)',
+                name='95% Confidence Interval',
+                fillcolor=f'rgba(255,215,0,0.2)',
+                hovertemplate='<b>Date</b>: %{x|%Y-%m-%d}<br><b>CI</b>: [%{y:.2f}, %{y:.2f}]<extra></extra>'
+            ))
+            
+            # Layout
+            fig.update_layout(
+                title=f'<b>{ALL_TICKERS[ticker]} - ARIMA Forecast</b>',
+                xaxis_title='Date',
+                yaxis_title='Price (₹)',
+                template='plotly_white',
+                hovermode='x unified',
+                height=600,
+                font=dict(family="Arial", size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            st.success(f"✓ Interactive chart generated for {ticker}")
+        
+        except Exception as e:
+            st.error(f"❌ Error generating chart: {str(e)}")
+    
     else:
-        st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate chart")
+        if not st.session_state.data_loaded:
+            st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to load data and generate chart")
+        else:
+            st.info("📊 Chart will appear after model fitting completes")
 
 # ───────────────────────────────────────────────────────────────────────────────
 # TAB 2: RESIDUAL DIAGNOSTICS
@@ -467,9 +646,14 @@ with tab2:
        - Deviations indicate non-normal behavior
     """)
     
-    if refresh_button:
-        st.success(f"✓ Diagnostics calculated for {ticker}")
-        st.info("📊 Placeholder: 2x2 diagnostic grid will appear here in Week 2")
+    if st.session_state.model_fitted:
+        try:
+            # Create diagnostic plots
+            st.session_state.arima_model.plot_diagnostics(figsize=(14, 10))
+            st.pyplot(plt.gcf(), use_container_width=True)
+            st.success(f"✓ Diagnostics calculated for {ticker}")
+        except Exception as e:
+            st.error(f"❌ Error generating diagnostics: {str(e)}")
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate diagnostics")
 
@@ -479,55 +663,74 @@ with tab2:
 with tab3:
     st.subheader("Model Fit & Performance Metrics")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**📋 Model Fit Metrics**")
-        st.metric("AIC", "TBD", help="Akaike Information Criterion - lower is better")
-        st.metric("BIC", "TBD", help="Bayesian Information Criterion - lower is better")
-        st.metric("Log-Likelihood", "TBD", help="Maximum likelihood value at convergence")
-    
-    with col2:
-        st.write("**📊 Forecast Accuracy (Test Set)**")
-        st.metric("RMSE", "TBD", help="Root Mean Squared Error")
-        st.metric("MAPE", "TBD%", help="Mean Absolute Percentage Error")
-        st.metric("Sharpe Ratio", "TBD", help="Risk-adjusted return measure")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**✓ Statistical Tests**")
-        st.info("""
-        - **Ljung-Box Test**: Checks if residuals are white noise (p > 0.05 = good)
-        - **Shapiro-Wilk Test**: Tests normality of residuals (p > 0.05 = normal)
-        - **ADF Test**: Ensures differenced series is stationary (p < 0.05 = stationary)
-        """)
-    
-    with col2:
-        st.write("**⚙️ Model Configuration**")
-        if model_mode == "Manual ARIMA":
-            st.metric("ARIMA Order", f"({p},{d},{q})", help="Specified parameters")
-        else:
-            st.metric("ARIMA Order", "Auto-selected", help="Via AIC minimization")
+    if st.session_state.model_fitted:
+        try:
+            # Get model metrics
+            residuals = st.session_state.arima_model.fitted_model.resid
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**📋 Model Fit Metrics**")
+                st.metric("AIC", f"{st.session_state.arima_model.aic:.2f}", 
+                         help="Akaike Information Criterion - lower is better")
+                st.metric("BIC", f"{st.session_state.arima_model.bic:.2f}", 
+                         help="Bayesian Information Criterion - lower is better")
+                st.metric("R-Squared", f"{st.session_state.arima_model.fitted_model.rsquared:.4f}", 
+                         help="Goodness of fit measure")
+            
+            with col2:
+                st.write("**📊 Forecast Accuracy (Residuals)**")
+                rmse = np.sqrt(np.mean(residuals**2))
+                st.metric("RMSE", f"₹{rmse:.2f}", help="Root Mean Squared Error")
+                mae = np.mean(np.abs(residuals))
+                st.metric("MAE", f"₹{mae:.2f}", help="Mean Absolute Error")
+                mape = np.mean(np.abs(residuals / st.session_state.series.mean())) * 100
+                st.metric("MAPE", f"{mape:.2f}%", help="Mean Absolute Percentage Error")
+            
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**✓ Residual Statistics**")
+                st.info(f"""
+                - **Mean**: {np.mean(residuals):.4f} (should be ~0)
+                - **Std Dev**: {np.std(residuals):.4f}
+                - **Min**: {np.min(residuals):.4f}
+                - **Max**: {np.max(residuals):.4f}
+                """)
+            
+            with col2:
+                st.write("**⚙️ Model Configuration**")
+                if st.session_state.arima_model.parameters:
+                    order = st.session_state.arima_model.parameters.get('order', (p, d, q))
+                    st.metric("ARIMA Order", f"{order}", help="Selected parameters")
+                else:
+                    st.metric("ARIMA Order", f"({p},{d},{q})", help="Specified parameters")
+                
+                st.metric("Train Size", f"{int(len(st.session_state.series) * train_pct / 100)}", 
+                         help="# observations in training set")
+                st.metric("Test Size", f"{int(len(st.session_state.series) * (100-train_pct) / 100)}", 
+                         help="# observations in test set")
         
-        st.metric("Train Size", "TBD", help="# observations in training set")
-        st.metric("Test Size", "TBD", help="# observations in test set")
+        except Exception as e:
+            st.error(f"❌ Error calculating metrics: {str(e)}")
+    else:
+        st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to calculate metrics")
 
 # ───────────────────────────────────────────────────────────────────────────────
 # TAB 4: FORECAST RESULTS
 # ───────────────────────────────────────────────────────────────────────────────
 with tab4:
-    st.subheader("10-Day Forecast with Confidence Intervals")
+    st.subheader(f"{forecast_horizon}-Day Forecast with Confidence Intervals")
     
     st.info("""
     **Forecast Table Columns:**
     - **Date**: Forecast date
     - **Forecast**: Point forecast (mean prediction)
-    - **Lower CI**: 95% confidence interval lower bound
-    - **Upper CI**: 95% confidence interval upper bound
-    - **Std Error**: Standard error of forecast
+    - **Lower CI**: Confidence interval lower bound
+    - **Upper CI**: Confidence interval upper bound
     
     **Interpretation:**
     If forecast = ₹2,500 with CI [₹2,450 - ₹2,550]:
@@ -535,17 +738,31 @@ with tab4:
     - We are 95% confident the actual price will be between ₹2,450-₹2,550
     """)
     
-    if refresh_button:
-        # Placeholder table
-        forecast_data = {
-            'Date': pd.date_range(start='2026-01-02', periods=10),
-            'Forecast': ['TBD'] * 10,
-            'Lower 95% CI': ['TBD'] * 10,
-            'Upper 95% CI': ['TBD'] * 10,
-            'Std Error': ['TBD'] * 10,
-        }
-        st.dataframe(forecast_data, use_container_width=True)
-        st.success("✓ Forecast generated - table will populate in Week 2")
+    if st.session_state.forecast_generated:
+        try:
+            # Format forecast dataframe for display
+            forecast_display = st.session_state.forecast_df.copy()
+            forecast_display.index = forecast_display.index.strftime('%Y-%m-%d')
+            forecast_display.columns = ['Forecast (₹)', 'Lower CI (₹)', 'Upper CI (₹)']
+            
+            # Round to 2 decimal places
+            forecast_display = forecast_display.round(2)
+            
+            st.dataframe(forecast_display, use_container_width=True)
+            
+            # Download button
+            csv = forecast_display.to_csv()
+            st.download_button(
+                label="📥 Download Forecast as CSV",
+                data=csv,
+                file_name=f"{ticker}_forecast_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+            
+            st.success("✓ Forecast generated - table shows point estimates and confidence intervals")
+        
+        except Exception as e:
+            st.error(f"❌ Error displaying forecast: {str(e)}")
     else:
         st.warning("⚠️ Click '🔄 FETCH DATA & RUN MODEL' to generate forecast table")
 
@@ -657,6 +874,9 @@ if st.sidebar.checkbox("🔧 Show Debug Info", key="debug_checkbox"):
     st.sidebar.write(f"Lookback: `{lookback_years}y`")
     st.sidebar.write(f"Transformation: `{transformation}`")
     st.sidebar.write(f"Model Mode: `{model_mode}`")
+    st.sidebar.write(f"Data Loaded: `{st.session_state.data_loaded}`")
+    st.sidebar.write(f"Model Fitted: `{st.session_state.model_fitted}`")
+    st.sidebar.write(f"Forecast Generated: `{st.session_state.forecast_generated}`")
     
     if model_mode == "Manual ARIMA":
         st.sidebar.write(f"ARIMA Order: `({p},{d},{q})`")
