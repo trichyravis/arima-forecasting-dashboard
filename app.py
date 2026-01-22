@@ -255,7 +255,7 @@ with st.sidebar:
     lookback_years = st.selectbox(
         "Years of Historical Data",
         options=[1, 2, 3, 5, 7, 10],
-        index=2,  # Default 5 years
+        index=2,  # Default 3 years
         help="More data = more stable model, but older patterns"
     )
     
@@ -665,4 +665,3 @@ if st.sidebar.checkbox("🔧 Show Debug Info", key="debug_checkbox"):
     st.sidebar.write(f"Confidence Level: `{confidence_level}`")
     st.sidebar.write(f"Train/Test Split: `{train_pct}% / {100-train_pct}%`")
     st.sidebar.write(f"Refresh Button Clicked: `{refresh_button}`")
-
